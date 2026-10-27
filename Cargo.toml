@@ -3,6 +3,8 @@ name = "sarah"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97.1"
+# Released through GitHub Releases, not crates.io.
+publish = false
 description = "Count tokens, lines and function sizes per file to help AI agents decide what to refactor"
 repository = "https://github.com/aiman2039/sarah"
 

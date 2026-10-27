@@ -52,6 +52,11 @@ jobs:
           tag="v${version}"
           git check-ref-format "refs/tags/$tag"
           sha="$(git rev-parse HEAD)"
+          # checks/security check out the workflow commit; it must be the released one.
+          if [[ -n "$REQUESTED_TAG" && "$sha" != "$GITHUB_SHA" ]]; then
+            echo "::error::Requested tag must point to the selected workflow commit. Retry on the tag ref if master has moved."
+            exit 1
+          fi
           if [[ -n "$REQUESTED_TAG" && "$REQUESTED_TAG" != "$tag" ]]; then
             echo "::error::Tag $REQUESTED_TAG must match package version $tag"
             exit 1
@@ -69,10 +74,16 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   # Release is the only trigger for CI: no PR, push, or branch runs.
-  # The reusable workflow exercises the exact revision being released.
+  # The reusable workflows exercise the exact revision being released.
   checks:
     needs: prepare
     uses: ./.github/workflows/ci.yaml
+    permissions:
+      contents: read
+
+  security:
+    needs: prepare
+    uses: ./.github/workflows/security.yaml
     permissions:
       contents: read
 
@@ -109,7 +120,7 @@ jobs:
 
   upload-draft:
     # Build in parallel with validation, but never upload unvalidated assets.
-    needs: [prepare, checks, build]
+    needs: [prepare, checks, security, build]
     runs-on: ubuntu-24.04
     concurrency:
       group: publish-${{ needs.prepare.outputs.tag }}

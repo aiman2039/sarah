@@ -1,0 +1,6 @@
+# cargo-audit config. Keep RUSTSEC ignores in sync with deny.toml.
+[advisories]
+# Unmaintained notices only (no CVEs).
+ignore = [
+    "RUSTSEC-2020-0163", # term_size via tokei (non-optional dependency)
+]

@@ -3,14 +3,28 @@
 # lints come from [lints.clippy] in Cargo.toml.
 set -eu
 cd "$(dirname "$0")/.."
+need_plugin() {
+    if ! cargo "$1" --version >/dev/null 2>&1; then
+        echo "missing cargo-$1; install with: cargo install cargo-$1 --locked" >&2
+        exit 1
+    fi
+}
 case "${1:-all}" in
     fmt) cargo fmt --all --check ;;
     clippy) cargo clippy --all-targets --all-features --locked -- -D warnings ;;
     test) cargo test --all-features --locked ;;
+    audit)
+        need_plugin audit
+        cargo audit
+        ;;
+    deny)
+        need_plugin deny
+        cargo deny check advisories bans licenses sources
+        ;;
     all)
-        for check in fmt clippy test; do
+        for check in fmt clippy test audit deny; do
             sh "$0" "$check"
         done
         ;;
-    *) echo "Usage: $0 [all|fmt|clippy|test]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [all|fmt|clippy|test|audit|deny]" >&2; exit 2 ;;
 esac

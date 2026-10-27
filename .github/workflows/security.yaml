@@ -1,0 +1,39 @@
+name: Security
+
+on:
+  # Release is the only trigger; no PR, push, schedule, or branch runs.
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      # Prebuilt binary download; nothing to cache.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # Reads RUSTSEC ignores from .cargo/audit.toml.
+      - name: Audit Cargo.lock
+        run: cargo audit
+
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # One invocation checks everything: separate jobs only duplicate setup.
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          command-arguments: advisories bans licenses sources

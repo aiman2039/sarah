@@ -68,7 +68,7 @@ Hooks install on the first `cargo test` (cargo-husky). `pre-commit` runs
 safety lints in `[lints.clippy]` in `Cargo.toml`, with `-D warnings`.
 
 ```sh
-sh scripts/check.sh          # fmt + clippy + tests (same as CI)
+sh scripts/check.sh          # fmt + clippy + tests + cargo-audit + cargo-deny (same as CI)
 ```
 
 ## Releasing
