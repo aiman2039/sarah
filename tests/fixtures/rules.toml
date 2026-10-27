@@ -1,0 +1,14 @@
+# Used by tests/cli.rs with --config; every kind of rule fires on tests/fixtures/repo.
+[[files]]
+path = "web/**"
+max_fn_tokens = 5
+
+[[folder]]
+path = "**"
+max_files = 1
+forbid = ["tool*"]
+
+[[folder]]
+path = "web"
+require = ["index.*"]
+naming = "PascalCase"

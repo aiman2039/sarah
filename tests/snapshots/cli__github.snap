@@ -1,0 +1,10 @@
+---
+source: tests/cli.rs
+expression: output
+---
+::warning file=tests/fixtures/repo/src/big.rs,title=sarah large_file::22 lines (>20) — consider splitting; largest fns: long_one (16 lines), short_one (3 lines)
+::warning file=tests/fixtures/repo/src/big.rs,line=3,title=sarah large_function::function long_one at L3-18: 16 lines (>10), 118 tokens — consider extracting helpers
+::warning file=tests/fixtures/repo/web/app.ts,line=1,title=sarah large_function::function add at L1-3: 3 lines, 19 tokens (>5) — consider extracting helpers
+::warning file=tests/fixtures/repo/tool.py,title=sarah folder_forbidden_name::name matches forbidden "tool*" — name it after what it does
+::warning file=tests/fixtures/repo/web,title=sarah folder_missing_required::no file matches required "index.*"
+::warning file=tests/fixtures/repo/web/app.ts,title=sarah folder_bad_name::name is not PascalCase

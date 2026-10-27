@@ -1,16 +1,45 @@
+use super::View;
 use super::common::RenderHelpers;
 use crate::report::model::Report;
 
 impl Report {
-    pub fn to_table(&self, top: usize) -> String {
+    pub fn to_table(&self, view: View) -> String {
+        let View { top, dirs } = view;
         [
             self.table_summary(),
             self.table_languages(),
             self.table_files(top),
             self.table_functions(top),
+            if dirs {
+                self.table_dirs(top)
+            } else {
+                String::new()
+            },
             self.warnings_block("Warnings"),
         ]
         .concat()
+    }
+
+    fn table_dirs(&self, top: usize) -> String {
+        let mut table = RenderHelpers::new_table(&[
+            "Folder",
+            "Files",
+            "Dirs",
+            "Total files",
+            "Lines",
+            "Tokens",
+        ]);
+        for d in self.dirs_by_tokens().into_iter().take(top) {
+            table.add_row(vec![
+                d.path.display().to_string(),
+                d.files.to_string(),
+                d.dirs.to_string(),
+                d.total_files.to_string(),
+                d.lines.to_string(),
+                d.tokens.to_string(),
+            ]);
+        }
+        format!("Folders (top {top} by tokens):\n{table}\n\n")
     }
 
     fn table_summary(&self) -> String {

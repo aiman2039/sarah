@@ -1,0 +1,230 @@
+---
+source: tests/cli.rs
+expression: output
+---
+{
+  "tokenizer": "o200k",
+  "totals": {
+    "files": 3,
+    "lines": 38,
+    "code": 29,
+    "comments": 2,
+    "blanks": 7,
+    "tokens": 215,
+    "bytes": 660
+  },
+  "by_language": {
+    "Python": {
+      "files": 1,
+      "lines": 11,
+      "code": 6,
+      "comments": 1,
+      "blanks": 4,
+      "tokens": 40,
+      "bytes": 158
+    },
+    "Rust": {
+      "files": 1,
+      "lines": 22,
+      "code": 19,
+      "comments": 1,
+      "blanks": 2,
+      "tokens": 144,
+      "bytes": 397
+    },
+    "TypeScript": {
+      "files": 1,
+      "lines": 5,
+      "code": 4,
+      "comments": 0,
+      "blanks": 1,
+      "tokens": 31,
+      "bytes": 105
+    }
+  },
+  "files": [
+    {
+      "path": "src/big.rs",
+      "language": "Rust",
+      "bytes": 397,
+      "lines": 22,
+      "code": 19,
+      "comments": 1,
+      "blanks": 2,
+      "tokens": 144,
+      "functions": [
+        {
+          "name": "long_one",
+          "kind": "function",
+          "start_line": 3,
+          "end_line": 18,
+          "lines": 16,
+          "tokens": 118,
+          "depth": 0
+        },
+        {
+          "name": "short_one",
+          "kind": "function",
+          "start_line": 20,
+          "end_line": 22,
+          "lines": 3,
+          "tokens": 14,
+          "depth": 0
+        }
+      ]
+    },
+    {
+      "path": "tool.py",
+      "language": "Python",
+      "bytes": 158,
+      "lines": 11,
+      "code": 6,
+      "comments": 1,
+      "blanks": 4,
+      "tokens": 40,
+      "functions": [
+        {
+          "name": "greet",
+          "kind": "function",
+          "start_line": 4,
+          "end_line": 6,
+          "lines": 3,
+          "tokens": 17,
+          "depth": 0
+        },
+        {
+          "name": "run",
+          "kind": "function",
+          "start_line": 10,
+          "end_line": 11,
+          "lines": 2,
+          "tokens": 10,
+          "depth": 0
+        }
+      ]
+    },
+    {
+      "path": "web/app.ts",
+      "language": "TypeScript",
+      "bytes": 105,
+      "lines": 5,
+      "code": 4,
+      "comments": 0,
+      "blanks": 1,
+      "tokens": 31,
+      "functions": [
+        {
+          "name": "add",
+          "kind": "function",
+          "start_line": 1,
+          "end_line": 3,
+          "lines": 3,
+          "tokens": 19,
+          "depth": 0
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "path": "src/big.rs",
+      "name": "long_one",
+      "kind": "function",
+      "start_line": 3,
+      "end_line": 18,
+      "lines": 16,
+      "tokens": 118,
+      "depth": 0
+    },
+    {
+      "path": "web/app.ts",
+      "name": "add",
+      "kind": "function",
+      "start_line": 1,
+      "end_line": 3,
+      "lines": 3,
+      "tokens": 19,
+      "depth": 0
+    },
+    {
+      "path": "tool.py",
+      "name": "greet",
+      "kind": "function",
+      "start_line": 4,
+      "end_line": 6,
+      "lines": 3,
+      "tokens": 17,
+      "depth": 0
+    },
+    {
+      "path": "src/big.rs",
+      "name": "short_one",
+      "kind": "function",
+      "start_line": 20,
+      "end_line": 22,
+      "lines": 3,
+      "tokens": 14,
+      "depth": 0
+    },
+    {
+      "path": "tool.py",
+      "name": "run",
+      "kind": "function",
+      "start_line": 10,
+      "end_line": 11,
+      "lines": 2,
+      "tokens": 10,
+      "depth": 0
+    }
+  ],
+  "directories": [
+    {
+      "path": ".",
+      "depth": 0,
+      "files": 1,
+      "dirs": 2,
+      "total_files": 3,
+      "lines": 38,
+      "tokens": 215
+    },
+    {
+      "path": "src",
+      "depth": 1,
+      "files": 1,
+      "dirs": 0,
+      "total_files": 1,
+      "lines": 22,
+      "tokens": 144
+    },
+    {
+      "path": "web",
+      "depth": 1,
+      "files": 1,
+      "dirs": 0,
+      "total_files": 1,
+      "lines": 5,
+      "tokens": 31
+    }
+  ],
+  "warnings": [
+    {
+      "path": "src/big.rs",
+      "kind": "large_file",
+      "message": "22 lines (>20) — consider splitting; largest fns: long_one (16 lines), short_one (3 lines)"
+    },
+    {
+      "path": "src/big.rs",
+      "kind": "large_function",
+      "message": "function long_one at L3-18: 16 lines (>10), 118 tokens — consider extracting helpers",
+      "line": 3,
+      "subject": "long_one"
+    }
+  ],
+  "skipped": {
+    "broken_links": 0,
+    "outside_root": 0,
+    "dir_links": 0,
+    "duplicates": 0,
+    "errors": 0
+  }
+}

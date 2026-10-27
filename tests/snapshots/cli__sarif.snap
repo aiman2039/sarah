@@ -1,0 +1,155 @@
+---
+source: tests/cli.rs
+expression: output
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "results": [
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "tests/fixtures/repo/src/big.rs"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "22 lines (>20) — consider splitting; largest fns: long_one (16 lines), short_one (3 lines)"
+          },
+          "ruleId": "large_file"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "tests/fixtures/repo/src/big.rs"
+                },
+                "region": {
+                  "startLine": 3
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "function long_one at L3-18: 16 lines (>10), 118 tokens — consider extracting helpers"
+          },
+          "ruleId": "large_function"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "tests/fixtures/repo/web/app.ts"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "function add at L1-3: 3 lines, 19 tokens (>5) — consider extracting helpers"
+          },
+          "ruleId": "large_function"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "tests/fixtures/repo/tool.py"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "name matches forbidden /"tool*/" — name it after what it does"
+          },
+          "ruleId": "folder_forbidden_name"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "tests/fixtures/repo/web"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "no file matches required /"index.*/""
+          },
+          "ruleId": "folder_missing_required"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "tests/fixtures/repo/web/app.ts"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "name is not PascalCase"
+          },
+          "ruleId": "folder_bad_name"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://github.com/aiman2039/sarah",
+          "name": "sarah",
+          "rules": [
+            {
+              "id": "folder_bad_name",
+              "shortDescription": {
+                "text": "folder_bad_name"
+              }
+            },
+            {
+              "id": "folder_forbidden_name",
+              "shortDescription": {
+                "text": "folder_forbidden_name"
+              }
+            },
+            {
+              "id": "folder_missing_required",
+              "shortDescription": {
+                "text": "folder_missing_required"
+              }
+            },
+            {
+              "id": "large_file",
+              "shortDescription": {
+                "text": "large_file"
+              }
+            },
+            {
+              "id": "large_function",
+              "shortDescription": {
+                "text": "large_function"
+              }
+            }
+          ],
+          "version": "0.1.3"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

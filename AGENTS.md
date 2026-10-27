@@ -30,6 +30,7 @@ Guidance for AI coding agents working in this repository.
 
 - Report output (table, markdown, JSON) is consumed by agents and the GitHub Action. Keep it byte-identical unless the
   change is intended; JSON newtypes stay `#[serde(transparent)]`.
+- New report features are opt-in for table/markdown (`--dirs`, `sarah.toml`); JSON may only gain fields.
 - Token counts must equal `tiktoken`'s exactly. Large files are tokenized in chunks cut only at the boundaries in
   `count/chunk.rs`; changing that rule or the tokenizer needs an exactness test against unsplit counts.
 - `count/pretokenizer.rs` re-implements `bpe-openai`'s pre-tokenizer with one regex cache per call (~2× faster in

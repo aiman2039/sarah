@@ -1,4 +1,4 @@
-/// The binary's only writer to stdout (rust.md: one output module).
+/// The binary's only writer to stdout and stderr (rust.md: one output module).
 pub struct CliOutput;
 
 impl CliOutput {
@@ -8,5 +8,10 @@ impl CliOutput {
     )]
     pub fn print_report(rendered: &str) {
         println!("{rendered}");
+    }
+
+    #[expect(clippy::print_stderr, reason = "fatal errors go to stderr")]
+    pub fn print_error(err: &anyhow::Error) {
+        eprintln!("Error: {err:?}");
     }
 }

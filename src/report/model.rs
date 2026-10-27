@@ -3,10 +3,13 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use clap::ValueEnum;
-use serde::Serialize;
+use derive_more::Display;
+use serde::{Deserialize, Serialize};
 
+use crate::config::LimitRules;
 use crate::count::FileStats;
-use crate::units::{Bytes, LineNo, Lines, Tokens};
+use crate::structure::{DirStats, DirTree, FolderRules};
+use crate::units::{Bytes, Depth, LineNo, Lines, Tokens};
 use crate::walk::Skipped;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -16,21 +19,12 @@ pub enum SortBy {
     Name,
 }
 
-pub struct Thresholds {
-    pub file: FileLimits,
-    pub fn_lines: Lines,
-}
-
-pub struct FileLimits {
-    pub tokens: Tokens,
-    pub lines: Lines,
-}
-
 pub struct ReportInput {
     pub files: Vec<FileStats>,
     pub skipped: Skipped,
     pub sort: SortBy,
-    pub limits: Thresholds,
+    pub limits: LimitRules,
+    pub folders: FolderRules,
     pub tokenizer: String,
 }
 
@@ -92,6 +86,7 @@ pub struct TopFn {
     pub end_line: LineNo,
     pub lines: Lines,
     pub tokens: Tokens,
+    pub depth: Depth,
 }
 
 impl TopFn {
@@ -112,6 +107,7 @@ impl TopFn {
                         end_line: func.end_line,
                         lines: func.lines,
                         tokens: func.tokens,
+                        depth: func.depth,
                     })
             })
             .collect();
@@ -120,11 +116,63 @@ impl TopFn {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[display(rename_all = "snake_case")]
+pub enum WarningKind {
+    LargeFile,
+    LargeFunction,
+    DeepFunction,
+    FolderTooManyFiles,
+    FolderTooManyDirs,
+    FolderTooDeep,
+    FolderTooManyTokens,
+    FolderTooFewEntries,
+    FolderMissingRequired,
+    FolderForbiddenName,
+    FolderBadName,
+    FolderSiblingModule,
+    FolderUnexpectedDir,
+}
+
 #[derive(Debug, Serialize)]
 pub struct Warning {
     pub path: PathBuf,
-    pub kind: &'static str,
+    pub kind: WarningKind,
     pub message: String,
+    /// First line of the offending function, when there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<LineNo>,
+    /// What the warning is about inside `path` (a function name, a required glob);
+    /// with `path` and `kind` it identifies the warning across runs (`--baseline`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+}
+
+impl Warning {
+    pub fn new(path: PathBuf, kind: WarningKind, message: String) -> Self {
+        Self {
+            path,
+            kind,
+            message,
+            line: None,
+            subject: None,
+        }
+    }
+
+    pub fn at_line(self, line: LineNo) -> Self {
+        Self {
+            line: Some(line),
+            ..self
+        }
+    }
+
+    pub fn about(self, subject: String) -> Self {
+        Self {
+            subject: Some(subject),
+            ..self
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -135,8 +183,13 @@ pub struct Report {
     pub files: Vec<FileStats>,
     /// All functions across the repo, largest (by lines) first.
     pub functions: Vec<TopFn>,
+    /// Every folder holding an analyzed file, in path order.
+    pub directories: Vec<DirStats>,
     pub warnings: Vec<Warning>,
     pub skipped: Skipped,
+    /// Warnings hidden because `--baseline` already had them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baselined: Option<usize>,
 }
 
 impl Report {
@@ -145,16 +198,19 @@ impl Report {
             mut files,
             skipped,
             sort,
-            limits: Thresholds { file, fn_lines },
+            limits,
+            folders,
             tokenizer,
         } = input;
         sort.apply(&mut files);
         let totals = Totals::of(&files);
         let by_language = Totals::by_language(&files);
         let functions = TopFn::ranked(&files);
+        let tree = DirTree::build(&files);
         let warnings = [
-            Warning::for_files(&files, &file),
-            Warning::for_functions(&functions, fn_lines),
+            Warning::for_files(&files, &limits),
+            Warning::for_functions(&functions, &limits),
+            folders.check(&tree),
         ]
         .into_iter()
         .flatten()
@@ -165,8 +221,10 @@ impl Report {
             by_language,
             files,
             functions,
+            directories: tree.stats(),
             warnings,
             skipped,
+            baselined: None,
         }
     }
 
@@ -178,6 +236,7 @@ impl Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::LimitPatch;
     use crate::functions::FnStats;
 
     struct Fixture {
@@ -210,6 +269,7 @@ mod tests {
                 end_line: LineNo(fn_lines.0),
                 lines: fn_lines,
                 tokens: Tokens(10),
+                depth: Depth(0),
             }]),
         }
     }
@@ -233,13 +293,17 @@ mod tests {
             ],
             skipped: Skipped::default(),
             sort: SortBy::Tokens,
-            limits: Thresholds {
-                file: FileLimits {
-                    tokens: Tokens(100),
-                    lines: Lines(50),
+            limits: LimitRules::new(
+                &[],
+                LimitPatch {
+                    max_file_tokens: Some(Tokens(100)),
+                    max_file_lines: Some(Lines(50)),
+                    max_fn_lines: Some(Lines(20)),
+                    ..LimitPatch::default()
                 },
-                fn_lines: Lines(20),
-            },
+            )
+            .unwrap(),
+            folders: FolderRules::new(None, Vec::new()).unwrap(),
             tokenizer: "o200k".into(),
         });
         assert_eq!(r.totals.files, 2);
@@ -253,8 +317,8 @@ mod tests {
         assert_eq!(
             kinds,
             vec![
-                ("big.rs".into(), "large_file"),
-                ("big.rs".into(), "large_function")
+                ("big.rs".into(), WarningKind::LargeFile),
+                ("big.rs".into(), WarningKind::LargeFunction)
             ]
         );
     }

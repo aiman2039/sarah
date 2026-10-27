@@ -1,15 +1,22 @@
 use std::fmt::Write as _;
 
+use super::View;
 use super::common::RenderHelpers;
 use crate::report::model::Report;
 
 impl Report {
-    pub fn to_markdown(&self, top: usize) -> String {
+    pub fn to_markdown(&self, view: View) -> String {
+        let View { top, dirs } = view;
         [
             self.markdown_summary(),
             self.markdown_languages(),
             self.markdown_files(top),
             self.markdown_functions(top),
+            if dirs {
+                self.markdown_dirs(top)
+            } else {
+                String::new()
+            },
             "\n".to_string(),
             self.warnings_block("## Refactor candidates"),
         ]
@@ -79,6 +86,25 @@ impl Report {
                 f.start_line,
                 f.lines,
                 f.tokens
+            );
+        }
+        out
+    }
+
+    fn markdown_dirs(&self, top: usize) -> String {
+        let mut out = format!(
+            "\n## Folders (top {top} by tokens)\n\n| Folder | Files | Dirs | Total files | Lines | Tokens |\n|---|---:|---:|---:|---:|---:|\n"
+        );
+        for d in self.dirs_by_tokens().into_iter().take(top) {
+            let _ = writeln!(
+                out,
+                "| `{}` | {} | {} | {} | {} | {} |",
+                d.path.display(),
+                d.files,
+                d.dirs,
+                d.total_files,
+                d.lines,
+                d.tokens
             );
         }
         out
