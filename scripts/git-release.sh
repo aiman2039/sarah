@@ -45,9 +45,15 @@ test -z "$(git tag --list "$tag")" || die "Tag $tag already exists locally. Noth
 test -z "$(git ls-remote --tags origin "refs/tags/$tag")" || die "Tag $tag already exists on origin. Nothing committed."
 
 test "v$(bash scripts/bump-version.sh)" = "$tag" || die "Version bump did not produce $tag."
+# Output can embed the version (SARIF), so test the bumped tree too. On failure, restore
+# Cargo.toml and Cargo.lock from the index (staged above, before the bump).
+if ! sh scripts/check.sh test; then
+    git checkout -- Cargo.toml Cargo.lock
+    die "Tests failed after the bump to $tag. Version restored; nothing committed."
+fi
 git add --all
 
-# The tree was just validated; only the version changed, so skip the hook's re-run.
+# The tree was validated before the bump and tested after it, so skip the hook's re-run.
 validated="$(git write-tree)"
 SARAH_RELEASE_VALIDATED_TREE="$validated" git commit --quiet -m "Release $tag"
 revision="$(git rev-parse HEAD)"
