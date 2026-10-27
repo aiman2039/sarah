@@ -35,13 +35,13 @@ pub struct Totals {
 
 impl Totals {
     fn add(&mut self, f: &FileStats) {
-        self.files += 1;
-        self.lines += f.lines;
-        self.code += f.code;
-        self.comments += f.comments;
-        self.blanks += f.blanks;
-        self.tokens += f.tokens;
-        self.bytes += f.bytes;
+        self.files = self.files.saturating_add(1);
+        self.lines = self.lines.saturating_add(f.lines);
+        self.code = self.code.saturating_add(f.code);
+        self.comments = self.comments.saturating_add(f.comments);
+        self.blanks = self.blanks.saturating_add(f.blanks);
+        self.tokens = self.tokens.saturating_add(f.tokens);
+        self.bytes = self.bytes.saturating_add(f.bytes);
     }
 }
 
@@ -127,8 +127,8 @@ impl Report {
         }
     }
 
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("report serializes")
+    pub fn to_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string_pretty(self)
     }
 
     pub fn to_table(&self, top: usize) -> String {
@@ -358,7 +358,11 @@ mod tests {
         assert_eq!(r.totals.files, 2);
         assert_eq!(r.totals.tokens, 210);
         assert_eq!(r.files[0].path, PathBuf::from("big.rs"));
-        let kinds: Vec<_> = r.warnings.iter().map(|w| (w.path.clone(), w.kind)).collect();
+        let kinds: Vec<_> = r
+            .warnings
+            .iter()
+            .map(|w| (w.path.clone(), w.kind))
+            .collect();
         assert_eq!(
             kinds,
             vec![

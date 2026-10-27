@@ -1,0 +1,86 @@
+name: Build release archive
+description: Build one target and upload its archive as a release-<target> artifact
+inputs:
+  runner-label:
+    description: Runner label, used as part of the cache key
+    required: true
+  target:
+    description: Rust target triple
+    required: true
+  rust-version:
+    description: Pinned Rust toolchain
+    required: true
+  tag:
+    description: Release tag from the prepare job
+    required: true
+runs:
+  using: composite
+  steps:
+    # musl builds are static, so they run on any Linux distribution.
+    - name: Install musl toolchain
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends musl-tools
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ inputs.rust-version }}
+        targets: ${{ inputs.target }}
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: release-${{ inputs.runner-label }}-${{ inputs.target }}
+        cache-bin: false
+        cache-on-failure: true
+        save-if: ${{ github.ref == 'refs/heads/master' }}
+    - name: Build
+      shell: bash
+      env:
+        CARGO_HUSKY_DONT_INSTALL_HOOKS: 'true'
+        TARGET: ${{ inputs.target }}
+      run: cargo build --release --locked --target "$TARGET"
+    - name: Archive and inspect
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        exe=sarah
+        if [[ "$RUNNER_OS" == Windows ]]; then exe=sarah.exe; fi
+        binary="target/$TARGET/release/$exe"
+        test -s "$binary"
+        # Smoke-test native builds; the Intel macOS build is cross-compiled.
+        host="$(rustc -vV | sed -n 's/^host: //p')"
+        if [[ "$host" == "$TARGET" || "$RUNNER_OS" == Linux ]]; then
+          "$binary" --version
+          "$binary" . --top 3
+        fi
+        if [[ "$RUNNER_OS" == Linux ]]; then
+          file "$binary" | tee /dev/stderr | grep -q 'statically linked\|static-pie linked'
+        fi
+        artifacts="$RUNNER_TEMP/sarah-build-artifacts"
+        mkdir -p "$artifacts"
+        asset="sarah-${TAG}-${TARGET}"
+        staging="$RUNNER_TEMP/$asset"
+        mkdir -p "$staging"
+        cp "$binary" README.md "$staging/"
+        if [[ "$RUNNER_OS" == Windows ]]; then
+          # Windows tar writes ZIP with -a; Git Bash's GNU tar does not.
+          (cd "$staging" && "$WINDIR/System32/tar.exe" -a -cf "$artifacts/$asset.zip" "$exe" README.md)
+          mkdir -p "$RUNNER_TEMP/verify"
+          "$WINDIR/System32/tar.exe" -xf "$artifacts/$asset.zip" -C "$RUNNER_TEMP/verify"
+          test -s "$RUNNER_TEMP/verify/$exe"
+        else
+          tar -czf "$artifacts/$asset.tar.gz" -C "$staging" "$exe" README.md
+          mkdir -p "$RUNNER_TEMP/verify"
+          tar -xzf "$artifacts/$asset.tar.gz" -C "$RUNNER_TEMP/verify"
+          test -x "$RUNNER_TEMP/verify/$exe"
+        fi
+    - uses: actions/upload-artifact@v7
+      with:
+        name: release-${{ inputs.target }}
+        path: ${{ runner.temp }}/sarah-build-artifacts/*
+        if-no-files-found: error
+        retention-days: 7
+        overwrite: true

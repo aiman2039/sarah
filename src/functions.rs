@@ -41,37 +41,59 @@ impl Lang {
     }
 
     fn config(self) -> Option<&'static TagsConfiguration> {
-        static CONFIGS: [OnceLock<Option<TagsConfiguration>>; 6] =
-            [const { OnceLock::new() }; 6];
-        CONFIGS[self as usize]
-            .get_or_init(|| {
-                // TypeScript's tags query only adds TS-specific patterns on top of JavaScript's.
-                let ts_query = format!(
-                    "{}\n{}",
-                    tree_sitter_javascript::TAGS_QUERY,
-                    tree_sitter_typescript::TAGS_QUERY
-                );
-                let (language, query): (tree_sitter::Language, &str) = match self {
-                    Self::Rust => (tree_sitter_rust::LANGUAGE.into(), tree_sitter_rust::TAGS_QUERY),
-                    Self::Python => (
-                        tree_sitter_python::LANGUAGE.into(),
-                        tree_sitter_python::TAGS_QUERY,
-                    ),
-                    Self::JavaScript => (
-                        tree_sitter_javascript::LANGUAGE.into(),
-                        tree_sitter_javascript::TAGS_QUERY,
-                    ),
-                    Self::TypeScript => {
-                        (tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), &ts_query)
-                    }
-                    Self::Tsx => (tree_sitter_typescript::LANGUAGE_TSX.into(), &ts_query),
-                    Self::Go => (tree_sitter_go::LANGUAGE.into(), tree_sitter_go::TAGS_QUERY),
-                };
-                TagsConfiguration::new(language, query, "")
-                    .inspect_err(|e| eprintln!("warning: tags query failed to load: {e}"))
-                    .ok()
-            })
-            .as_ref()
+        type Cell = OnceLock<Option<TagsConfiguration>>;
+        static RUST: Cell = OnceLock::new();
+        static PYTHON: Cell = OnceLock::new();
+        static JAVASCRIPT: Cell = OnceLock::new();
+        static TYPESCRIPT: Cell = OnceLock::new();
+        static TSX: Cell = OnceLock::new();
+        static GO: Cell = OnceLock::new();
+
+        // TypeScript's tags query only adds TS-specific patterns on top of JavaScript's.
+        let ts_query = || {
+            format!(
+                "{}\n{}",
+                tree_sitter_javascript::TAGS_QUERY,
+                tree_sitter_typescript::TAGS_QUERY
+            )
+        };
+        let cell = match self {
+            Self::Rust => &RUST,
+            Self::Python => &PYTHON,
+            Self::JavaScript => &JAVASCRIPT,
+            Self::TypeScript => &TYPESCRIPT,
+            Self::Tsx => &TSX,
+            Self::Go => &GO,
+        };
+        cell.get_or_init(|| {
+            let (language, query): (tree_sitter::Language, String) = match self {
+                Self::Rust => (
+                    tree_sitter_rust::LANGUAGE.into(),
+                    tree_sitter_rust::TAGS_QUERY.into(),
+                ),
+                Self::Python => (
+                    tree_sitter_python::LANGUAGE.into(),
+                    tree_sitter_python::TAGS_QUERY.into(),
+                ),
+                Self::JavaScript => (
+                    tree_sitter_javascript::LANGUAGE.into(),
+                    tree_sitter_javascript::TAGS_QUERY.into(),
+                ),
+                Self::TypeScript => (
+                    tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+                    ts_query(),
+                ),
+                Self::Tsx => (tree_sitter_typescript::LANGUAGE_TSX.into(), ts_query()),
+                Self::Go => (
+                    tree_sitter_go::LANGUAGE.into(),
+                    tree_sitter_go::TAGS_QUERY.into(),
+                ),
+            };
+            TagsConfiguration::new(language, &query, "")
+                .inspect_err(|e| eprintln!("warning: tags query failed to load: {e}"))
+                .ok()
+        })
+        .as_ref()
     }
 }
 
@@ -92,23 +114,26 @@ pub fn extract(path: &Path, source: &str, tokenizer: Tokenizer) -> Option<Vec<Fn
         if !seen.insert(tag.range.clone()) {
             continue;
         }
-        let body = &source[tag.range.clone()];
-        let start_line = line_of(source, tag.range.start);
-        let end_line = start_line + body.matches('\n').count();
+        // Tag ranges come from the parser and land on UTF-8 boundaries; skip any that don't.
+        let (Some(body), Some(name), Some(before)) = (
+            source.get(tag.range.clone()),
+            source.get(tag.name_range),
+            source.get(..tag.range.start),
+        ) else {
+            continue;
+        };
+        let start_line = before.matches('\n').count().saturating_add(1);
+        let span = body.matches('\n').count();
         out.push(FnStats {
-            name: source[tag.name_range].to_string(),
+            name: name.to_string(),
             kind: kind.to_string(),
             start_line,
-            end_line,
-            lines: end_line - start_line + 1,
+            end_line: start_line.saturating_add(span),
+            lines: span.saturating_add(1),
             tokens: tokenizer.count(body),
         });
     }
     Some(out)
-}
-
-fn line_of(source: &str, byte: usize) -> usize {
-    source[..byte].matches('\n').count() + 1
 }
 
 #[cfg(test)]

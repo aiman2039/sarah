@@ -36,7 +36,12 @@ pub fn collect_files(root: &Path, opts: &WalkOptions) -> Result<Vec<PathBuf>> {
         overrides.add(glob)?;
     }
     let defaults = DEFAULT_EXCLUDES.iter().filter(|_| opts.default_excludes);
-    for glob in opts.exclude.iter().map(String::as_str).chain(defaults.copied()) {
+    for glob in opts
+        .exclude
+        .iter()
+        .map(String::as_str)
+        .chain(defaults.copied())
+    {
         overrides.add(&format!("!{glob}"))?;
     }
 
@@ -46,7 +51,7 @@ pub fn collect_files(root: &Path, opts: &WalkOptions) -> Result<Vec<PathBuf>> {
         .build()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-        .map(|e| e.into_path())
+        .map(ignore::DirEntry::into_path)
         .collect();
     files.sort();
     Ok(files)

@@ -2,6 +2,9 @@
 name = "sarah"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.97.1"
+description = "Count tokens, lines and function sizes per file to help AI agents decide what to refactor"
+repository = "https://github.com/aiman2039/sarah"
 
 [dependencies]
 anyhow = "1.0.104"
@@ -20,3 +23,29 @@ tree-sitter-python = "0.25.0"
 tree-sitter-rust = "0.24.2"
 tree-sitter-tags = "0.27.1"
 tree-sitter-typescript = "0.23.2"
+
+[dev-dependencies.cargo-husky]
+version = "1.5.0"
+default-features = false
+features = ["user-hooks"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# `scripts/check.sh clippy` uses `-D warnings`, so every warn here fails that check.
+# Pedantic is priority -1 so a later allow on one lint wins.
+# string_slice is the string half of indexing_slicing.
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+indexing_slicing = "warn"
+string_slice = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+arithmetic_side_effects = "warn"
+clone_on_ref_ptr = "warn"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+struct_excessive_bools = "allow"
+struct_field_names = "allow"

@@ -7,7 +7,7 @@ use tokei::{Config, LanguageType};
 
 use crate::functions::{self, FnStats};
 
-/// Claude's tokenizer isn't public; these OpenAI encodings are a close approximation.
+/// Claude's tokenizer isn't public; these `tiktoken` encodings are a close approximation.
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum Tokenizer {
     O200k,
@@ -49,16 +49,16 @@ pub fn analyze(
     let text = std::fs::read_to_string(path).ok()?;
     let config = Config::default();
     let lang = LanguageType::from_path(path, &config);
-    let (code, comments, blanks) = match lang {
-        Some(l) => {
+    let (code, comments, blanks) = lang.map_or_else(
+        || {
+            let blanks = text.lines().filter(|l| l.trim().is_empty()).count();
+            (text.lines().count().saturating_sub(blanks), 0, blanks)
+        },
+        |l| {
             let s = l.parse_from_str(&text, &config).summarise();
             (s.code, s.comments, s.blanks)
-        }
-        None => {
-            let blanks = text.lines().filter(|l| l.trim().is_empty()).count();
-            (text.lines().count() - blanks, 0, blanks)
-        }
-    };
+        },
+    );
     Some(FileStats {
         language: lang.map_or("Other".to_string(), |l| l.name().to_string()),
         bytes: text.len(),

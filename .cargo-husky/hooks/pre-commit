@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+# git-release already checked this exact tree.
+if [ -n "${SARAH_RELEASE_VALIDATED_TREE:-}" ] && \
+    [ "$(git write-tree)" = "$SARAH_RELEASE_VALIDATED_TREE" ]; then
+    exit 0
+fi
+sh scripts/check.sh fmt
+sh scripts/check.sh clippy

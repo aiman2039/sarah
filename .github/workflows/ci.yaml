@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  # Release is the only trigger; no PR, push, or branch runs.
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  CARGO_HUSKY_DONT_INSTALL_HOOKS: 'true'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: Checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.1'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: dev-${{ matrix.os }}
+          cache-bin: false
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - name: Formatting
+        run: sh scripts/check.sh fmt
+      # Clippy compiles every target, so there is no separate build step.
+      - name: Clippy (pedantic)
+        run: sh scripts/check.sh clippy
+      - name: Tests
+        run: sh scripts/check.sh test

@@ -1,0 +1,131 @@
+name: sarah
+description: Count tokens, lines and function sizes per file and flag refactor candidates for AI agents
+author: aiman2039
+branding:
+  icon: bar-chart-2
+  color: purple
+
+inputs:
+  path:
+    description: Directory to analyze
+    required: false
+    default: '.'
+  args:
+    description: Extra sarah arguments, e.g. "--max-fn-lines 60 --exclude 'vendor/**'"
+    required: false
+    default: ''
+  fail-on-warn:
+    description: Fail the step when any file or function exceeds the limits
+    required: false
+    default: 'false'
+  summary:
+    description: Write the markdown report to the job summary
+    required: false
+    default: 'true'
+  version:
+    description: Release tag to install (e.g. v0.2.0). Defaults to the action ref when it is a tag, else the latest release
+    required: false
+    default: ''
+  token:
+    description: Token used to download the release
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  json:
+    description: Path to the full JSON report
+    value: ${{ steps.run.outputs.json }}
+  tokens:
+    description: Total token count
+    value: ${{ steps.run.outputs.tokens }}
+  warnings:
+    description: Number of refactor warnings
+    value: ${{ steps.run.outputs.warnings }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install sarah
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        VERSION: ${{ inputs.version }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        # github.action_repository/action_ref are empty inside composite actions,
+        # so read them from the checkout path: .../_actions/<owner>/<repo>/<ref>.
+        repo="$GITHUB_REPOSITORY" ref=""
+        normalized="${ACTION_PATH//\\//}"
+        if [[ "$normalized" =~ /_actions/([^/]+)/([^/]+)/([^/]+) ]]; then
+          repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+          ref="${BASH_REMATCH[3]}"
+        fi
+        tag="$VERSION"
+        if [[ -z "$tag" && "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+          tag="$ref"
+        fi
+        if [[ -z "$tag" ]]; then
+          tag="$(gh release view --repo "$repo" --json tagName --jq .tagName)"
+        fi
+
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) target=x86_64-unknown-linux-musl ;;
+          Linux-ARM64) target=aarch64-unknown-linux-musl ;;
+          macOS-ARM64) target=aarch64-apple-darwin ;;
+          macOS-X64) target=x86_64-apple-darwin ;;
+          Windows-X64) target=x86_64-pc-windows-msvc ;;
+          *) echo "::error::No sarah release for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+        esac
+        ext=tar.gz
+        if [[ "$RUNNER_OS" == Windows ]]; then ext=zip; fi
+        asset="sarah-${tag}-${target}.${ext}"
+
+        dir="$RUNNER_TEMP/sarah-$tag"
+        mkdir -p "$dir"
+        gh release download "$tag" --repo "$repo" --dir "$dir" --clobber \
+          --pattern "$asset" --pattern SHA256SUMS.txt
+        (
+          cd "$dir"
+          grep " ${asset}\$" SHA256SUMS.txt > expected.txt
+          if command -v sha256sum >/dev/null; then sha256sum -c expected.txt; else shasum -a 256 -c expected.txt; fi
+          if [[ "$ext" == zip ]]; then
+            "$WINDIR/System32/tar.exe" -xf "$asset"
+          else
+            tar -xzf "$asset"
+          fi
+        )
+        echo "$dir" >> "$GITHUB_PATH"
+        echo "Installed sarah $tag ($target) from $repo"
+
+    - name: Run sarah
+      id: run
+      shell: bash
+      env:
+        TARGET_PATH: ${{ inputs.path }}
+        EXTRA_ARGS: ${{ inputs.args }}
+        FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
+        SUMMARY: ${{ inputs.summary }}
+      run: |
+        set -euo pipefail
+        report="$RUNNER_TEMP/sarah-report.json"
+        markdown="$RUNNER_TEMP/sarah-report.md"
+        # Word-split EXTRA_ARGS like a shell would, honoring quotes.
+        eval "extra=($EXTRA_ARGS)"
+        if [[ "$FAIL_ON_WARN" == true ]]; then extra+=(--fail-on-warn); fi
+        status=0
+        sarah "$TARGET_PATH" --format md --json-out "$report" "${extra[@]}" > "$markdown" || status=$?
+        if [[ ! -s "$report" ]]; then
+          cat "$markdown"
+          exit "$status"
+        fi
+        cat "$markdown"
+        if [[ "$SUMMARY" == true ]]; then
+          cat "$markdown" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        {
+          echo "json=$report"
+          echo "tokens=$(jq '.totals.tokens' "$report")"
+          echo "warnings=$(jq '.warnings | length' "$report")"
+        } >> "$GITHUB_OUTPUT"
+        exit "$status"

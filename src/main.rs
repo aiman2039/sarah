@@ -74,6 +74,10 @@ struct Args {
     /// Exit with code 1 if any warnings are reported
     #[arg(long)]
     fail_on_warn: bool,
+
+    /// Also write the full JSON report to this file, whatever --format is
+    #[arg(long, value_name = "PATH")]
+    json_out: Option<PathBuf>,
 }
 
 fn main() -> Result<ExitCode> {
@@ -106,10 +110,13 @@ fn main() -> Result<ExitCode> {
 
     let rendered = match args.format {
         Format::Table => report.to_table(args.top),
-        Format::Json => report.to_json(),
+        Format::Json => report.to_json()?,
         Format::Md => report.to_markdown(args.top),
     };
     println!("{rendered}");
+    if let Some(path) = &args.json_out {
+        std::fs::write(path, report.to_json()?)?;
+    }
 
     Ok(if args.fail_on_warn && !report.warnings.is_empty() {
         ExitCode::FAILURE

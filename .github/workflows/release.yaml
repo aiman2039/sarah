@@ -1,0 +1,199 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag at the selected master revision
+        required: false
+        type: string
+
+# Manual runs create v<package version> at the selected revision. The build
+# stays in this run because tags created with GITHUB_TOKEN do not trigger runs.
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: '1.97.1'
+  MACOSX_DEPLOYMENT_TARGET: '11.0'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate version and resolve immutable revision
+        id: version
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
+          tag="v${version}"
+          git check-ref-format "refs/tags/$tag"
+          sha="$(git rev-parse HEAD)"
+          if [[ -n "$REQUESTED_TAG" && "$REQUESTED_TAG" != "$tag" ]]; then
+            echo "::error::Tag $REQUESTED_TAG must match package version $tag"
+            exit 1
+          fi
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            test "$(git rev-parse "refs/tags/$tag^{commit}")" = "$sha" || {
+              echo "::error::Existing tag $tag points to another commit; select that tag to retry or bump the version."
+              exit 1
+            }
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$tag" -f "sha=$sha"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  # Release is the only trigger for CI: no PR, push, or branch runs.
+  # The reusable workflow exercises the exact revision being released.
+  checks:
+    needs: prepare
+    uses: ./.github/workflows/ci.yaml
+    permissions:
+      contents: read
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15
+            target: x86_64-apple-darwin
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-build
+        with:
+          runner-label: ${{ matrix.runner }}
+          target: ${{ matrix.target }}
+          rust-version: ${{ env.RUST_VERSION }}
+          tag: ${{ needs.prepare.outputs.tag }}
+
+  upload-draft:
+    # Build in parallel with validation, but never upload unvalidated assets.
+    needs: [prepare, checks, build]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: publish-${{ needs.prepare.outputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums and upload release assets
+        run: |
+          set -euo pipefail
+          cd dist
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 5
+          sha256sum ./*.tar.gz ./*.zip | sed 's| \./| |' > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            prerelease=()
+            if [[ "$TAG" == *-* ]]; then
+              prerelease=(--prerelease)
+            fi
+            gh release create "$TAG" --verify-tag --draft --title "$TAG" \
+              --generate-notes "${prerelease[@]}"
+          fi
+          if [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]]; then
+            echo "::error::Refusing to replace published release assets. Bump the version."
+            exit 1
+          fi
+          gh release upload "$TAG" ./*.tar.gz ./*.zip SHA256SUMS.txt --clobber
+          gh release view "$TAG" --json assets > "$RUNNER_TEMP/draft-assets.json"
+          python3 - "$RUNNER_TEMP/draft-assets.json" <<'ASSETS'
+          import json, pathlib, sys
+          expected = {p.name for p in pathlib.Path('.').iterdir() if p.is_file()}
+          actual = {a['name'] for a in json.load(open(sys.argv[1]))['assets']}
+          if actual != expected:
+              raise SystemExit('Draft contains unexpected or missing assets; review it before publication')
+          ASSETS
+
+  publish:
+    needs: [prepare, upload-draft]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - name: Publish complete validated draft
+        run: gh release edit "$TAG" --draft=false --latest
+
+  # End-to-end check of the public action against the release just published.
+  verify-action:
+    needs: [prepare, publish]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - id: sarah
+        uses: ./
+        with:
+          version: ${{ needs.prepare.outputs.tag }}
+      - name: Check action outputs
+        env:
+          REPORT: ${{ steps.sarah.outputs.json }}
+          TOKENS: ${{ steps.sarah.outputs.tokens }}
+          WARNINGS: ${{ steps.sarah.outputs.warnings }}
+        run: |
+          set -euo pipefail
+          test -s "$REPORT"
+          test "$TOKENS" -gt 0
+          [[ "$WARNINGS" =~ ^[0-9]+$ ]]
+          echo "tokens=$TOKENS warnings=$WARNINGS"
