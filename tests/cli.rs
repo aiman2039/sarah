@@ -40,9 +40,19 @@ fn sarah() -> Command {
     cmd
 }
 
-/// Windows prints paths with `\` (escaped as `\\` in JSON).
+/// Windows prints paths with `\` (escaped as `\\` in JSON). SARIF embeds sarah's own
+/// version, which every release bumps.
 fn snapshot(name: &str, output: &str) {
-    insta::with_settings!({ filters => vec![(r"\\\\", "/"), (r"\\", "/")] }, {
+    let version = format!(
+        r#""version": "{}""#,
+        env!("CARGO_PKG_VERSION").replace('.', r"\.")
+    );
+    let filters = vec![
+        (r"\\\\", "/"),
+        (r"\\", "/"),
+        (version.as_str(), r#""version": "[sarah-version]""#),
+    ];
+    insta::with_settings!({ filters => filters }, {
         insta::assert_snapshot!(name, output);
     });
 }
