@@ -52,3 +52,9 @@ missing_errors_doc = "allow"
 must_use_candidate = "allow"
 struct_excessive_bools = "allow"
 struct_field_names = "allow"
+
+# Vendored with a pre-tokenizer fix: one regex cache per split() instead of a
+# shared-pool lookup per piece, which serialized tokenization across threads.
+# See vendor/bpe-openai/SARAH-PATCH.md. Drop once upstream ships the fix.
+[patch.crates-io]
+bpe-openai = { path = "vendor/bpe-openai" }

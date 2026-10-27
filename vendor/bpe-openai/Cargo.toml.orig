@@ -1,0 +1,31 @@
+[package]
+name = "bpe-openai"
+version = "0.3.2"
+edition = "2021"
+description = "Prebuilt fast byte-pair encoders for OpenAI."
+repository = "https://github.com/github/rust-gems"
+license = "MIT"
+keywords = ["tokenizer", "algorithm", "encoding", "bpe"]
+categories = ["algorithms", "data-structures", "encoding", "science"]
+
+[lib]
+crate-type = ["lib", "staticlib"]
+bench = false
+
+[dependencies]
+bpe = { version = "0.2", path = "../bpe" }
+either = "1.13"
+regex-automata = "0.4"
+rmp-serde = "1"
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+bpe = { version = "0.2", path = "../bpe", features = ["rand"] }
+tiktoken-rs = "0.12"
+
+[build-dependencies]
+base64 = "0.23"
+bpe = { version = "0.2", path = "../bpe", features = ["tiktoken"] }
+flate2 = "1.0"
+rmp-serde = "1"
+serde = "1"
