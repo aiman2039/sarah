@@ -8,6 +8,7 @@ use comfy_table::{Table, presets::UTF8_FULL_CONDENSED};
 use serde::Serialize;
 
 use crate::count::FileStats;
+use crate::walk::Skipped;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum SortBy {
@@ -72,11 +73,13 @@ pub struct Report {
     /// All functions across the repo, largest (by lines) first.
     pub functions: Vec<TopFn>,
     pub warnings: Vec<Warning>,
+    pub skipped: Skipped,
 }
 
 impl Report {
     pub fn build(
         mut files: Vec<FileStats>,
+        skipped: Skipped,
         sort: SortBy,
         limits: &Thresholds,
         tokenizer: String,
@@ -124,6 +127,7 @@ impl Report {
             files,
             functions,
             warnings,
+            skipped,
         }
     }
 
@@ -136,9 +140,11 @@ impl Report {
         let t = &self.totals;
         let _ = writeln!(
             out,
-            "{} files, {} lines ({} code, {} comments, {} blank), {} tokens [{}]\n",
+            "{} files, {} lines ({} code, {} comments, {} blank), {} tokens [{}]",
             t.files, t.lines, t.code, t.comments, t.blanks, t.tokens, self.tokenizer
         );
+        self.write_skipped(&mut out);
+        out.push('\n');
 
         let mut langs = new_table(&["Language", "Files", "Lines", "Code", "Tokens"]);
         for (name, l) in self.languages_by_tokens() {
@@ -189,6 +195,8 @@ impl Report {
             "**{} files**, {} lines ({} code, {} comments, {} blank), **{} tokens** (tokenizer: {})\n",
             t.files, t.lines, t.code, t.comments, t.blanks, t.tokens, self.tokenizer
         );
+        self.write_skipped(&mut out);
+        out.push('\n');
 
         out.push_str("## Languages\n\n| Language | Files | Lines | Code | Tokens |\n|---|---:|---:|---:|---:|\n");
         for (name, l) in self.languages_by_tokens() {
@@ -236,6 +244,17 @@ impl Report {
         out.push('\n');
         self.write_warnings(&mut out, "## Refactor candidates", "- ");
         out
+    }
+
+    fn write_skipped(&self, out: &mut String) {
+        let s = &self.skipped;
+        if s.total() > 0 {
+            let _ = writeln!(
+                out,
+                "Skipped: {} broken links, {} links outside root, {} directory links, {} duplicate/excluded link targets, {} unreadable",
+                s.broken_links, s.outside_root, s.dir_links, s.duplicates, s.errors
+            );
+        }
     }
 
     fn languages_by_tokens(&self) -> Vec<(&String, &Totals)> {
@@ -351,6 +370,7 @@ mod tests {
         };
         let r = Report::build(
             vec![file("ok.rs", 10, 10, 5), file("big.rs", 60, 200, 30)],
+            Skipped::default(),
             SortBy::Tokens,
             &limits,
             "o200k".into(),

@@ -82,7 +82,7 @@ struct Args {
 
 fn main() -> Result<ExitCode> {
     let args = Args::parse();
-    let paths = walk::collect_files(
+    let walk = walk::collect_files(
         &args.path,
         &walk::WalkOptions {
             include: &args.include,
@@ -92,12 +92,10 @@ fn main() -> Result<ExitCode> {
         },
     )?;
 
-    let files: Vec<_> = paths
-        .par_iter()
-        .filter_map(|p| {
-            let display = p.strip_prefix(&args.path).unwrap_or(p).to_path_buf();
-            count::analyze(p, display, args.tokenizer, !args.no_functions)
-        })
+    let files: Vec<_> = walk
+        .files
+        .into_par_iter()
+        .filter_map(|f| count::analyze(&f.real, f.display, args.tokenizer, !args.no_functions))
         .collect();
 
     let limits = Thresholds {
@@ -106,7 +104,7 @@ fn main() -> Result<ExitCode> {
         max_fn_lines: args.max_fn_lines,
     };
     let tokenizer = format!("{:?}", args.tokenizer).to_lowercase();
-    let report = Report::build(files, args.sort, &limits, tokenizer);
+    let report = Report::build(files, walk.skipped, args.sort, &limits, tokenizer);
 
     let rendered = match args.format {
         Format::Table => report.to_table(args.top),

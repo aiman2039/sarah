@@ -3,8 +3,9 @@
 Counts tokens, lines and function sizes per file so AI agents (and humans) can see
 *when*, *what* and *how* to refactor a repo.
 
-Built on existing crates: `ignore` (gitignore-aware walking), `tiktoken-rs` (tokens),
-`tokei` (code/comment/blank lines), `tree-sitter-tags` (function spans).
+Built on existing crates: `ignore` (gitignore-aware parallel walking), `bpe-openai`
+(tokens; exact `tiktoken` counts), `tokei` (code/comment/blank lines), `tree-sitter-tags`
+(function spans), `rayon` (parallelism; files over 256 KB are tokenized in chunks).
 
 ## Install
 
@@ -33,6 +34,12 @@ Key flags: `--sort tokens|lines|name`, `-n/--top N`, `--tokenizer o200k|cl100k`,
 Function extraction: Rust, Python, JavaScript, TypeScript/TSX, Go.
 
 Token counts use OpenAI encodings; Claude's tokenizer isn't public, so treat them as a close approximation.
+
+Symlinks: every file is counted once, keyed by its realpath. File links are followed
+when their target is inside the root; directory links are never descended (an in-root
+target is walked by its real path anyway), so link cycles can't loop. Broken links,
+links leaving the root, directory links and duplicate targets are reported under
+`skipped` instead of disappearing.
 
 ## GitHub Action
 
