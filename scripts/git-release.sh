@@ -15,7 +15,9 @@ esac
 
 die() { echo "error: $*" >&2; exit 1; }
 
-test -z "$(git status --porcelain)" || die "Working tree is not clean. Commit or stash first."
+# Release the whole working tree, like terminator: stage every change, including
+# untracked files. --check-only leaves the index alone.
+$check_only || git add --all
 head="$(git rev-parse HEAD)"
 branch="$(git symbolic-ref --short HEAD)"
 
@@ -39,13 +41,11 @@ old="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
 [[ "$old" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || die "Expected a stable major.minor.patch version, got '$old'"
 tag="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
 
-test -z "$(git tag --list "$tag")" || die "Tag $tag already exists locally. No files changed."
-test -z "$(git ls-remote --tags origin "refs/tags/$tag")" || die "Tag $tag already exists on origin. No files changed."
+test -z "$(git tag --list "$tag")" || die "Tag $tag already exists locally. Nothing committed."
+test -z "$(git ls-remote --tags origin "refs/tags/$tag")" || die "Tag $tag already exists on origin. Nothing committed."
 
 test "v$(bash scripts/bump-version.sh)" = "$tag" || die "Version bump did not produce $tag."
-git add Cargo.toml Cargo.lock
-test "$(git diff --cached --name-only | sort | tr '\n' ' ')" = "Cargo.lock Cargo.toml " \
-    || die "Unexpected staged changes after the version bump."
+git add --all
 
 # The tree was just validated; only the version changed, so skip the hook's re-run.
 validated="$(git write-tree)"
