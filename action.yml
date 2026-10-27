@@ -114,7 +114,7 @@ runs:
         eval "extra=($EXTRA_ARGS)"
         if [[ "$FAIL_ON_WARN" == true ]]; then extra+=(--fail-on-warn); fi
         status=0
-        sarah "$TARGET_PATH" --format md --json-out "$report" "${extra[@]}" > "$markdown" || status=$?
+        sarah "$TARGET_PATH" --format md --json-out "$report" ${extra[@]+"${extra[@]}"} > "$markdown" || status=$?
         if [[ ! -s "$report" ]]; then
           cat "$markdown"
           exit "$status"
