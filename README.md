@@ -1,7 +1,7 @@
 # sarah
 
 Sarah is our beloved mother that tracks our behavior and make sure we don't screw up.
-Enforcign tokens , line count, folder structure and more.
+Enforcing tokens , line count, folder structure and more.
 
 Counts tokens, lines and function sizes per file so AI agents (and humans) can see
 *when*, *what* and *how* to refactor a repo.
@@ -16,7 +16,7 @@ Download a binary for Linux (x86_64/aarch64, static musl), macOS (Apple Silicon/
 or Windows (x86_64) from [Releases](https://github.com/aiman2039/sarah/releases), or:
 
 ```sh
-cargo install --git https://github.com/aiman2039/sarah
+cargo install sarah
 ```
 
 ## Usage

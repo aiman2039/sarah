@@ -3,10 +3,14 @@ name = "sarah"
 version = "0.1.2"
 edition = "2024"
 rust-version = "1.97.1"
-# Released through GitHub Releases, not crates.io.
-publish = false
+license = "MIT"
 description = "Count tokens, lines and function sizes per file to help AI agents decide what to refactor"
 repository = "https://github.com/aiman2039/sarah"
+readme = "README.md"
+keywords = ["tokens", "refactoring", "ai", "cli", "code-metrics"]
+categories = ["command-line-utilities", "development-tools"]
+# Only what `cargo install` needs; CI, scripts and agent docs stay out of the package.
+include = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -17,6 +21,7 @@ derive_more = { version = "2", features = ["display", "from_str"] }
 dunce = "1.0.5"
 ignore = "0.4.33"
 rayon = "1.12.0"
+regex-automata = "0.4.18"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tokei = { version = "15.0.0", default-features = false }
@@ -96,9 +101,3 @@ self_named_module_files = "deny"
 
 # Beyond rust.md: Arc/Rc clones must be explicit (Arc::clone(&x)).
 clone_on_ref_ptr = "deny"
-
-# Vendored with a pre-tokenizer fix: one regex cache per split() instead of a
-# shared-pool lookup per piece, which serialized tokenization across threads.
-# See vendor/bpe-openai/SARAH-PATCH.md. Drop once upstream ships the fix.
-[patch.crates-io]
-bpe-openai = { path = "vendor/bpe-openai" }

@@ -2,6 +2,7 @@ use clap::ValueEnum;
 use rayon::prelude::*;
 
 use super::chunk::ChunkHelpers;
+use super::pretokenizer::Pretokenizer;
 use crate::units::Tokens;
 
 /// Claude's tokenizer isn't public; the `o200k`/`cl100k` encodings (via `bpe-openai`,
@@ -28,14 +29,30 @@ impl Tokenizer {
         }
     }
 
+    fn pretokenizer(self) -> Option<&'static Pretokenizer> {
+        match self {
+            Self::O200k => Pretokenizer::o200k(),
+            Self::Cl100k => Pretokenizer::cl100k(),
+        }
+    }
+
+    /// Count with sarah's contention-free pre-tokenizer; fall back to `bpe-openai`'s
+    /// own `count` if it can't handle the text.
+    fn count_piece(self, text: &str) -> Tokens {
+        let encoder = self.encoder();
+        let fast = self
+            .pretokenizer()
+            .and_then(|pre| pre.count(&encoder.bpe, text));
+        Tokens(fast.unwrap_or_else(|| encoder.count(text)))
+    }
+
     fn count_chunked(self, text: &str, chunk_bytes: usize) -> Tokens {
-        let bpe = self.encoder();
         if text.len() <= chunk_bytes {
-            return Tokens(bpe.count(text));
+            return self.count_piece(text);
         }
         ChunkHelpers::split_at_token_boundaries(text, chunk_bytes)
             .into_par_iter()
-            .map(|chunk| Tokens(bpe.count(chunk)))
+            .map(|chunk| self.count_piece(chunk))
             .reduce(Tokens::default, Tokens::saturating_add)
     }
 }
@@ -69,6 +86,31 @@ mod tests {
                 let whole = Tokens(tokenizer.encoder().count(text));
                 assert!(ChunkHelpers::split_at_token_boundaries(text, 1).len() > 2);
                 assert_eq!(tokenizer.count_chunked(text, 1), whole, "{text:?}");
+            }
+        }
+    }
+
+    /// sarah's pre-tokenizer must count exactly like `bpe-openai` (and so `tiktoken`).
+    #[test]
+    fn pretokenizer_matches_bpe_openai() {
+        let sources = [
+            include_str!("tokenizer.rs"),
+            include_str!("chunk.rs"),
+            include_str!("../walk/walker.rs"),
+            include_str!("../report/render/markdown.rs"),
+        ]
+        .concat();
+        let tricky = "I'm here, they'll SAY 'S're\n\n  \n\t x  \r\n12345 ...!!! /path//x\n\
+             héllo Ωmega 日本語 émoji 🙂 \u{a0}nbsp\u{2003}em  trailing   \n\n\n";
+        for tokenizer in [Tokenizer::O200k, Tokenizer::Cl100k] {
+            let pre = tokenizer.pretokenizer().unwrap();
+            let encoder = tokenizer.encoder();
+            for text in [sources.as_str(), tricky, "", " ", "\n", "  \n  ", "a"] {
+                assert_eq!(
+                    pre.count(&encoder.bpe, text),
+                    Some(encoder.count(text)),
+                    "{tokenizer:?} {text:?}"
+                );
             }
         }
     }

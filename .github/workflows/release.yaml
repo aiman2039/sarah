@@ -179,6 +179,44 @@ jobs:
       - name: Publish complete validated draft
         run: gh release edit "$TAG" --draft=false --latest
 
+  # crates.io trusted publishing (OIDC): no stored token. One-time setup: publish
+  # the first version by hand (`cargo publish`), then add this repository and
+  # release.yaml as a trusted publisher in the crate's crates.io settings.
+  publish-crate:
+    needs: [prepare, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      # A retried release must not fail because this version was already published.
+      - name: Check whether this version is on crates.io
+        id: exists
+        run: |
+          set -euo pipefail
+          status="$(curl -s -o /dev/null -w '%{http_code}' \
+            -A "sarah-release (github.com/$GITHUB_REPOSITORY)" \
+            "https://crates.io/api/v1/crates/sarah/${TAG#v}")"
+          if [[ "$status" == 200 ]]; then echo "published=true"; else echo "published=false"; fi >> "$GITHUB_OUTPUT"
+      - uses: rust-lang/crates-io-auth-action@v1
+        if: steps.exists.outputs.published == 'false'
+        id: auth
+      - name: Publish to crates.io
+        if: steps.exists.outputs.published == 'false'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          CARGO_HUSKY_DONT_INSTALL_HOOKS: 'true'
+        run: cargo publish --locked
+
   # End-to-end check of the public action against the release just published.
   verify-action:
     needs: [prepare, publish]

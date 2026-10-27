@@ -40,8 +40,6 @@ allow-git = []
 
 [licenses]
 confidence-threshold = 0.8
-# sarah itself is publish = false until it has a license; dependencies are still checked.
-private = { ignore = true }
 allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",

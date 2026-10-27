@@ -2,6 +2,7 @@
 
 mod chunk;
 mod file_stats;
+mod pretokenizer;
 mod tokenizer;
 
 pub use file_stats::{AnalyzeInput, FileStats};

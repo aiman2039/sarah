@@ -32,8 +32,9 @@ Guidance for AI coding agents working in this repository.
   change is intended; JSON newtypes stay `#[serde(transparent)]`.
 - Token counts must equal `tiktoken`'s exactly. Large files are tokenized in chunks cut only at the boundaries in
   `count/chunk.rs`; changing that rule or the tokenizer needs an exactness test against unsplit counts.
-- `vendor/bpe-openai` is a patched copy (see `vendor/bpe-openai/SARAH-PATCH.md`) wired in via `[patch.crates-io]`.
-  Don't edit or remove it unless syncing with upstream. Exclude it when running sarah on itself: `-e 'vendor/**'`.
+- `count/pretokenizer.rs` re-implements `bpe-openai`'s pre-tokenizer with one regex cache per call (~2× faster in
+  parallel). On a `bpe-openai` upgrade, keep its patterns in sync; `pretokenizer_matches_bpe_openai` must pass.
+  Remove it when upstream ships the fix.
 - Walk: files are keyed by realpath; directory symlinks are never followed; skipped entries are counted in `Skipped`.
 
 ## Releases
