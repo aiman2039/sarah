@@ -3,16 +3,25 @@
 ## Structs
 
 - Default to public fields and methods.
-- When a type has invariants to protect, use private
-  fields                                                                                                                                             
-  with constructors/builders and accessor methods.
+- When a type has invariants to protect, use private fields with constructors/builders and accessor methods.
 
 ## Functions
 
 - Default to private for non-method functions; make public only when they are API.
-- If there is more than one argument of the same type, use an input struct
 - If there are more than three arguments, use an input struct
-- Always fully destruct the input struct, to ensure we always use all of the fields inside the method
+- If two or more arguments share a type and swapping them would silently change behavior, use an input struct.
+  Symmetric arguments (`max(a, b)`) are exempt.
+- Always fully destructure input structs (the ones created for a function's arguments), so every field is used.
+  This does not apply to other structs a function reads.
+
+## Newtypes
+
+- Domain values whose meaning goes beyond their representation get a newtype so they can't be mixed up:
+  identifiers (`UserId(u64)` vs `OrderId(u64)`), units and amounts (`Lamports(u64)`, `Tokens(usize)`, `Millis(u64)`),
+  and validated data (`Email(String)`).
+- When the value has invariants, use a private field with a checked constructor (see Structs).
+- Use `derive_more` for the boilerplate (`From`, `Into`, `Display`, arithmetic) instead of writing impls by hand.
+- Plain primitives stay plain where nothing can be mixed up (loop indices, short-lived locals, symmetric arguments).
 
 ## Format
 
@@ -39,12 +48,8 @@ module_name_repetitions = "allow"
 struct_excessive_bools = "allow"
 fn_params_excessive_bools = "allow"
 items_after_statements = "allow"
-uninlined_format_args = "allow"
 return_self_not_must_use = "allow"
-cast_possible_truncation = "allow"
-cast_sign_loss = "allow"
 cast_precision_loss = "allow"
-cast_possible_wrap = "allow"
 default_trait_access = "allow"
 match_same_arms = "allow"
 unused_async = "allow"
@@ -65,9 +70,23 @@ wildcard_imports = "allow"
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
+# Out-of-bounds indexing/slicing: use .get(..) and handle the None
+indexing_slicing = "deny"
+# Slicing a str inside a multi-byte character: use str::get(..)
+string_slice = "deny"
+# Integer overflow (panics in debug, wraps in release): use checked_*/saturating_*
+arithmetic_side_effects = "deny"
+# Silent value corruption: cast_possible_truncation, cast_sign_loss and
+# cast_possible_wrap stay at pedantic's warn (denied by -D warnings); use T::try_from(x)?
 
-# Prohibit bare allow attributes - require reasons
+# Prohibit allow attributes: use #[expect(lint, reason = "...")], which errors once the
+# lint stops firing, so suppressions can't go stale. Reasons are mandatory.
+# Platform-specific lints: #[cfg_attr(target_os = "...", expect(lint, reason = "..."))]
+allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
+
+# Enforce the Format Strings rule: `format!("{var}")`, never `format!("{}", var)`
+uninlined_format_args = "deny"
 
 # Allow large error types - error types need rich context for good UX
 result_large_err = "allow"
@@ -77,30 +96,32 @@ dbg_macro = "deny"
 # No incomplete code markers
 todo = "deny"
 unimplemented = "deny"
-# Use tracing instead of println/eprintln in library code
+# No println!/eprintln!. Libraries return data or log with tracing. A binary routes
+# user-facing output through one module marked
+# #[expect(clippy::print_stdout, reason = "...")]; diagnostics go through tracing.
 print_stdout = "deny"
 print_stderr = "deny"
+
+# Module roots are topic/mod.rs, never topic.rs + topic/ (see Module Organization)
+self_named_module_files = "deny"
 ```
 
 - For single-crate projects, use `[lints.clippy]` (no workspace table) and do not set `lints.workspace = true`.
+- Tests may index fixtures and unwrap. Allow that in `clippy.toml` at the project root:
+
+  ```toml
+  allow-indexing-slicing-in-tests = true
+  allow-unwrap-in-tests = true
+  allow-expect-in-tests = true
+  allow-panic-in-tests = true
+  ```
+
+  Arithmetic and string slicing in tests have no such switch; use checked/`get` there too.
 - In workspaces, each member crate should inherit via:
 
   ```toml
   [lints]
   workspace = true
-  ```
-
-- Optionally scope production-only denies to non-test code in `lib.rs`:
-
-  ```rust
-  #![cfg_attr(not(test), deny(
-      clippy::unwrap_used,
-      clippy::expect_used,
-      clippy::dbg_macro,
-      clippy::print_stdout,
-      clippy::print_stderr,
-      clippy::panic,
-  ))]
   ```
 
 ## Format Strings
@@ -112,9 +133,10 @@ print_stderr = "deny"
 
 ## Helpers (stateless utilities)
 
-- Make folders per topic; use modules as namespaces.
-- Prefer using a struct with static methods
-- The helper name is helpful for namespacing for example CircuitHelpers
+- Make folders per topic; modules organize the files.
+- Inside the module, put stateless helpers on a struct with static methods (e.g. `CircuitHelpers::validate`).
+  A free function can be imported bare (`use circuit::validate;`), which hides where it comes from at the call site;
+  an associated function always needs the struct prefix, so every call stays self-describing and greppable.
 - This pattern is for stateless utilities only (pure functions, no owned state).
 - If a type owns resources (clients, connections, config), use instance methods (`&self`) on that type rather than
   passing owned resources to static methods.
@@ -178,6 +200,17 @@ impl Builder {
 ## Errors
 
 - Use `thiserror` for all error enums.
+- Library code returns `thiserror` enums so callers can match on the failure.
+- `anyhow` is allowed only in binaries, at the top level (`main`, command handlers), for context and reporting.
+- Enforce it in library crates with clippy `disallowed_types` (`disallowed_types = "deny"` in `[lints.clippy]`)
+  and in that crate's `clippy.toml`:
+
+  ```toml
+  disallowed-types = [
+      { path = "anyhow::Error", reason = "library errors must be thiserror enums" },
+      { path = "anyhow::Result", reason = "library errors must be thiserror enums" },
+  ]
+  ```
 - Reserve a `source` field for real error sources (`impl std::error::Error`) and use `#[source]`/`#[from]` as
   appropriate. For string context, use fields like `reason` or `details` instead of `source`.
 - Each error variant should carry enough context to debug without looking at logs.
@@ -191,6 +224,9 @@ impl Builder {
 
 ## Module Organization
 
-- One directory per topic (`config/`, `client/`, `bundler/`), each with a `mod.rs` that re-exports submodules
+- Directories mirror the architecture: one directory per topic (`config/`, `client/`, `bundler/`), so `src/` stays
+  a small set of topics instead of a flat list of files. A topic directory holds as many files as it needs.
+- Each topic directory has a `mod.rs` that declares and re-exports its submodules (enforced by
+  `self_named_module_files = "deny"`, which forbids the `topic.rs` + `topic/` style).
 - Large `impl` blocks can be split across multiple files in the same directory (e.g., `impl JitoBundler` in `send.rs`,
   `simulate.rs`, `status.rs`)

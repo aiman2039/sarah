@@ -13,6 +13,7 @@ anyhow = "1.0.104"
 bpe-openai = "0.3.2"
 clap = { version = "4.6.7", features = ["derive"] }
 comfy-table = "8.0.1"
+derive_more = { version = "2", features = ["display", "from_str"] }
 dunce = "1.0.5"
 ignore = "0.4.33"
 rayon = "1.12.0"
@@ -37,21 +38,64 @@ lto = "thin"
 codegen-units = 1
 strip = true
 
-# `scripts/check.sh clippy` uses `-D warnings`, so every warn here fails that check.
-# Pedantic is priority -1 so a later allow on one lint wins.
-# string_slice is the string half of indexing_slicing.
+# Lint policy: rust.md. `scripts/check.sh clippy` adds `-D warnings`, so pedantic
+# warnings fail CI and the pre-commit hook too. Pedantic is priority -1 so the
+# per-lint levels below win.
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
-indexing_slicing = "warn"
-string_slice = "warn"
-unwrap_used = "warn"
-expect_used = "warn"
-arithmetic_side_effects = "warn"
-clone_on_ref_ptr = "warn"
+
+# Pedantic overrides - too noisy or not applicable
 missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 must_use_candidate = "allow"
+doc_markdown = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+module_name_repetitions = "allow"
 struct_excessive_bools = "allow"
-struct_field_names = "allow"
+fn_params_excessive_bools = "allow"
+items_after_statements = "allow"
+return_self_not_must_use = "allow"
+cast_precision_loss = "allow"
+default_trait_access = "allow"
+match_same_arms = "allow"
+unused_async = "allow"
+manual_let_else = "allow"
+used_underscore_binding = "allow"
+ref_option_ref = "allow"
+ref_option = "allow"
+format_push_string = "allow"
+case_sensitive_file_extension_comparisons = "allow"
+unnecessary_wraps = "allow"
+needless_pass_by_value = "allow"
+trivially_copy_pass_by_ref = "allow"
+no_effect_underscore_binding = "allow"
+redundant_closure_for_method_calls = "allow"
+wildcard_imports = "allow"
+
+# Panic safety
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+arithmetic_side_effects = "deny"
+
+# Suppressions must be #[expect(lint, reason = "...")]
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
+uninlined_format_args = "deny"
+result_large_err = "allow"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+self_named_module_files = "deny"
+
+# Beyond rust.md: Arc/Rc clones must be explicit (Arc::clone(&x)).
+clone_on_ref_ptr = "deny"
 
 # Vendored with a pre-tokenizer fix: one regex cache per split() instead of a
 # shared-pool lookup per piece, which serialized tokenization across threads.

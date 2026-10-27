@@ -1,5 +1,8 @@
 # sarah
 
+Sarah is our beloved mother that tracks our behavior and make sure we don't screw up.
+Enforcign tokens , line count, folder structure and more.
+
 Counts tokens, lines and function sizes per file so AI agents (and humans) can see
 *when*, *what* and *how* to refactor a repo.
 
