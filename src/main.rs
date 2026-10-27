@@ -1,3 +1,4 @@
+mod allow;
 mod cli;
 mod config;
 mod count;

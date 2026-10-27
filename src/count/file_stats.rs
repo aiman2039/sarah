@@ -4,6 +4,7 @@ use serde::Serialize;
 use tokei::{Config, LanguageType};
 
 use super::tokenizer::Tokenizer;
+use crate::allow::Allows;
 use crate::functions::FnStats;
 use crate::units::{Bytes, Lines, Tokens};
 use crate::walk::FileEntry;
@@ -21,6 +22,9 @@ pub struct FileStats {
     /// `None` when function extraction isn't supported for this language or was disabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub functions: Option<Vec<FnStats>>,
+    /// File-wide `sarah-allow-file` kinds and malformed directives.
+    #[serde(skip)]
+    pub allows: Allows,
 }
 
 pub struct AnalyzeInput {
@@ -44,6 +48,10 @@ impl FileStats {
             comments,
             blanks,
         } = LineBreakdown::of(lang, &text);
+        let mut functions = with_functions
+            .then(|| FnStats::extract(&real, &text, tokenizer))
+            .flatten();
+        let allows = Allows::scan(&text, functions.as_deref_mut());
         Some(Self {
             language: lang.map_or("Other".to_string(), |l| l.name().to_string()),
             bytes: Bytes(text.len()),
@@ -52,9 +60,8 @@ impl FileStats {
             comments,
             blanks,
             tokens: tokenizer.count(&text),
-            functions: with_functions
-                .then(|| FnStats::extract(&real, &text, tokenizer))
-                .flatten(),
+            functions,
+            allows,
             path: display,
         })
     }

@@ -109,6 +109,7 @@ impl DirTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::allow::Allows;
     use crate::units::Bytes;
 
     fn file(path: &str, tokens: usize) -> FileStats {
@@ -122,6 +123,7 @@ mod tests {
             blanks: Lines(0),
             tokens: Tokens(tokens),
             functions: None,
+            allows: Allows::default(),
         }
     }
 

@@ -75,6 +75,10 @@ pub struct Args {
     #[arg(long, value_name = "REV")]
     pub changed_since: Option<String>,
 
+    /// Ignore `sarah-allow` comments and report every warning
+    #[arg(long)]
+    pub no_allow: bool,
+
     /// Skip tree-sitter function extraction
     #[arg(long)]
     pub no_functions: bool,

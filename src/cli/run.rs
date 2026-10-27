@@ -99,8 +99,11 @@ impl Args {
         }
     }
 
-    /// Apply `--baseline`, then `--changed-since`.
+    /// Apply `sarah-allow` comments (unless `--no-allow`), `--baseline`, then `--changed-since`.
     fn filter(&self, report: &mut Report) -> Result<()> {
+        if !self.no_allow {
+            report.apply_allows();
+        }
         if let Some(path) = &self.baseline {
             report.apply_baseline(&Baseline::load(path)?);
         }

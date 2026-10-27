@@ -28,6 +28,23 @@ impl Warning {
             .collect()
     }
 
+    /// Malformed or misplaced `sarah-allow` comments, file by file.
+    pub(super) fn for_allow_problems(files: &[FileStats]) -> Vec<Self> {
+        files
+            .iter()
+            .flat_map(|f| {
+                f.allows.problems.iter().map(|p| {
+                    Self::new(
+                        f.path.clone(),
+                        WarningKind::BadAllow,
+                        format!("sarah-allow at L{}: {}", p.line, p.message),
+                    )
+                    .at_line(p.line)
+                })
+            })
+            .collect()
+    }
+
     fn for_file(f: &FileStats, limits: &Limits) -> Option<Self> {
         let mut over = Vec::new();
         if f.tokens > limits.file_tokens {

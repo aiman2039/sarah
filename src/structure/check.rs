@@ -217,6 +217,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::allow::Allows;
     use crate::count::FileStats;
     use crate::structure::FolderRule;
     use crate::structure::naming::Naming;
@@ -233,6 +234,7 @@ mod tests {
             blanks: Lines(0),
             tokens: Tokens(10),
             functions: None,
+            allows: Allows::default(),
         }
     }
 

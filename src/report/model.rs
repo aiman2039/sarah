@@ -87,6 +87,8 @@ pub struct TopFn {
     pub lines: Lines,
     pub tokens: Tokens,
     pub depth: Depth,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub allow: Vec<WarningKind>,
 }
 
 impl TopFn {
@@ -108,6 +110,7 @@ impl TopFn {
                         lines: func.lines,
                         tokens: func.tokens,
                         depth: func.depth,
+                        allow: func.allow.clone(),
                     })
             })
             .collect();
@@ -133,6 +136,8 @@ pub enum WarningKind {
     FolderBadName,
     FolderSiblingModule,
     FolderUnexpectedDir,
+    /// A malformed or misplaced `sarah-allow` comment.
+    BadAllow,
 }
 
 #[derive(Debug, Serialize)]
@@ -190,6 +195,9 @@ pub struct Report {
     /// Warnings hidden because `--baseline` already had them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub baselined: Option<usize>,
+    /// Warnings hidden by `sarah-allow` comments.
+    #[serde(skip_serializing_if = "Report::is_zero")]
+    pub allowed: usize,
 }
 
 impl Report {
@@ -211,6 +219,7 @@ impl Report {
             Warning::for_files(&files, &limits),
             Warning::for_functions(&functions, &limits),
             folders.check(&tree),
+            Warning::for_allow_problems(&files),
         ]
         .into_iter()
         .flatten()
@@ -225,7 +234,12 @@ impl Report {
             warnings,
             skipped,
             baselined: None,
+            allowed: 0,
         }
+    }
+
+    fn is_zero(n: &usize) -> bool {
+        *n == 0
     }
 
     pub fn to_json(&self) -> serde_json::Result<String> {
@@ -236,6 +250,7 @@ impl Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::allow::Allows;
     use crate::config::LimitPatch;
     use crate::functions::FnStats;
 
@@ -270,7 +285,9 @@ mod tests {
                 lines: fn_lines,
                 tokens: Tokens(10),
                 depth: Depth(0),
+                allow: Vec::new(),
             }]),
+            allows: Allows::default(),
         }
     }
 

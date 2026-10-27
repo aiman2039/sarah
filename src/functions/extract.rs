@@ -7,6 +7,7 @@ use tree_sitter_tags::TagsContext;
 use super::lang::Lang;
 use super::nesting::NestingHelpers;
 use crate::count::Tokenizer;
+use crate::report::WarningKind;
 use crate::units::{Depth, LineNo, Lines, Tokens};
 
 #[derive(Debug, Clone, Serialize)]
@@ -19,6 +20,9 @@ pub struct FnStats {
     pub tokens: Tokens,
     /// Deepest control-flow nesting inside the function.
     pub depth: Depth,
+    /// Warning kinds a `sarah-allow` comment above the function turns off.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub allow: Vec<WarningKind>,
 }
 
 impl FnStats {
@@ -59,6 +63,7 @@ impl FnStats {
                 lines: start_line.span_to(end_line),
                 tokens: tokenizer.count(body),
                 depth: NestingHelpers::depth_of(lang, &tree, tag.range.clone()),
+                allow: Vec::new(),
             });
         }
         Some(out)

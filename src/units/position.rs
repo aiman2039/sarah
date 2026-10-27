@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use super::counts::Lines;
 
 /// 1-based line number (a position, not a count; see `Lines`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Display, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, Serialize, Deserialize,
+)]
 #[serde(transparent)]
 pub struct LineNo(pub usize);
 

@@ -40,7 +40,7 @@ Key flags: `--sort tokens|lines|name`, `-n/--top N`, `--tokenizer o200k|cl100k`,
 `--max-fn-tokens N` and `--max-fn-depth N` (off by default),
 `-i/--include GLOB`, `-e/--exclude GLOB`, `--hidden`, `--no-functions`,
 `--no-default-excludes` (lockfiles, `*.min.js`, `*.map` are skipped by default),
-`--config FILE` (default: `<PATH>/sarah.toml` when it exists).
+`--config FILE` (default: `<PATH>/sarah.toml` when it exists), `--no-allow` (ignore `sarah-allow` comments).
 
 Exit codes: `0` success, `1` warnings with `--fail-on-warn`, `2` error.
 
@@ -50,6 +50,31 @@ Ruby, PHP. Each function has a nesting `depth`: the deepest chain of `if`/loop/`
 
 The JSON report also has `directories`: per folder, its direct `files` and `dirs`, and
 `total_files`, `lines` and `tokens` for the whole subtree.
+
+## Allow comments: `sarah-allow`
+
+Turn off function or file warnings in the code, like clippy's `#[allow]`:
+
+```rust
+// sarah-allow(large_function, deep_function): one flat state machine
+/// Docs, attributes and decorators may sit between the comment and the function.
+#[instrument]
+fn run() { /* ... */ }
+```
+
+```python
+# sarah-allow-file(large_file): generated
+```
+
+- `sarah-allow(kinds): reason` goes directly above a function: `large_function`, `deep_function`.
+- `sarah-allow-file(kinds): reason` goes anywhere in a file: `large_file`, `large_function`, `deep_function`.
+- No list (`sarah-allow: reason`) allows every kind of that scope.
+- The `:` is required; the reason after it may be empty.
+- Any line-comment style works (`//`, `#`, `--`, `/* */`); the comment must be on its own line.
+- A malformed directive, or one above no function, is a `bad_allow` warning.
+- Allowed warnings are removed before `--baseline` and `--fail-on-warn`. The report shows
+  "N warnings allowed by sarah-allow comments" (JSON: `allowed`); `--no-allow` shows them all.
+- Folder rules have no comment; override them per glob in `sarah.toml`.
 
 ## Config: `sarah.toml`
 

@@ -1,5 +1,6 @@
 //! Aggregation, refactor warnings, baseline/changed-file filters and rendering.
 
+mod allow;
 mod baseline;
 mod changed;
 mod model;

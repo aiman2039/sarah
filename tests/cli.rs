@@ -135,3 +135,50 @@ fn baseline_hides_known_warnings() {
 fn changed_since_runs() {
     sarah().args(["--changed-since", "HEAD"]).assert().success();
 }
+
+#[test]
+fn allow_comments_hide_warnings_unless_no_allow() {
+    // The malformed directive is written at run time, so sarah's own report stays clean.
+    let dir = std::env::temp_dir().join(format!("sarah-allow-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::copy("tests/fixtures/allow/lib.rs", dir.join("lib.rs")).unwrap();
+    std::fs::write(
+        dir.join("bad.rs"),
+        "// sarah-allow(large_function)
+pub fn short() {}
+",
+    )
+    .unwrap();
+    let run = |extra: &[&str]| {
+        let out = Command::cargo_bin("sarah")
+            .unwrap()
+            .arg(&dir)
+            .args(["--max-fn-lines", "5", "--max-file-lines", "5"])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let shown = run(&[]);
+    assert!(shown.contains("function reported"), "{shown}");
+    assert!(!shown.contains("function allowed"), "{shown}");
+    assert!(
+        !shown.contains("lines (>5) — consider splitting"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("bad.rs: sarah-allow at L1: missing `: <reason>`"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("2 warnings allowed by sarah-allow comments"),
+        "{shown}"
+    );
+
+    let all = run(&["--no-allow"]);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(all.contains("function allowed"), "{all}");
+    assert!(all.contains("consider splitting"), "{all}");
+    assert!(!all.contains("allowed by sarah-allow"), "{all}");
+}

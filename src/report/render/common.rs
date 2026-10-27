@@ -37,6 +37,13 @@ impl Report {
             }
             out
         };
+        if self.allowed > 0 {
+            let _ = writeln!(
+                out,
+                "\n{} warnings allowed by sarah-allow comments",
+                self.allowed
+            );
+        }
         if let Some(hidden) = self.baselined {
             let _ = writeln!(out, "\n{hidden} known warnings hidden by --baseline");
         }

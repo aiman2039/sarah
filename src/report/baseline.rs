@@ -153,7 +153,8 @@ impl Sizes {
             | WarningKind::FolderForbiddenName
             | WarningKind::FolderBadName
             | WarningKind::FolderSiblingModule
-            | WarningKind::FolderUnexpectedDir => None,
+            | WarningKind::FolderUnexpectedDir
+            | WarningKind::BadAllow => None,
         }
     }
 }
