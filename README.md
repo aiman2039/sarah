@@ -74,9 +74,12 @@ sh scripts/check.sh          # fmt + clippy + tests (same as CI)
 ## Releasing
 
 ```sh
+scripts/bump-version.sh               # 0.1.0 -> 0.1.1 in Cargo.toml + Cargo.lock (no commit)
+git commit -am "Release v0.1.1" && git push
+scripts/release.sh                    # trigger the Release workflow for origin/master's version
+
 scripts/git-release.sh --check-only   # run every check, change nothing
-scripts/git-release.sh                # from master: check, bump minor, commit, tag, push, start Release
-scripts/release.sh                    # release the current version as-is
+scripts/git-release.sh                # all of the above in one step: check, bump, commit, tag, push, release
 ```
 
 The Release workflow (`.github/workflows/release.yaml`) runs CI on macOS/Linux/Windows,
