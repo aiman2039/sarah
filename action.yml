@@ -22,8 +22,12 @@ inputs:
     description: Write the markdown report to the job summary
     required: false
     default: 'true'
+  annotations:
+    description: Add each warning as a GitHub annotation on the file (and line) it is about
+    required: false
+    default: 'true'
   version:
-    description: Release tag to install (e.g. v0.2.0). Defaults to the action ref when it is a tag, else the latest release
+    description: Release tag to install (e.g. v0.1.3). Defaults to the action ref when it is a tag, else the latest release
     required: false
     default: ''
   token:
@@ -106,12 +110,16 @@ runs:
         EXTRA_ARGS: ${{ inputs.args }}
         FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
         SUMMARY: ${{ inputs.summary }}
+        ANNOTATIONS: ${{ inputs.annotations }}
       run: |
         set -euo pipefail
         report="$RUNNER_TEMP/sarah-report.json"
         markdown="$RUNNER_TEMP/sarah-report.md"
         # Word-split EXTRA_ARGS like a shell would, honoring quotes.
         eval "extra=($EXTRA_ARGS)"
+        if [[ "$ANNOTATIONS" == true ]]; then
+          sarah "$TARGET_PATH" --format github ${extra[@]+"${extra[@]}"} || true
+        fi
         if [[ "$FAIL_ON_WARN" == true ]]; then extra+=(--fail-on-warn); fi
         status=0
         sarah "$TARGET_PATH" --format md --json-out "$report" ${extra[@]+"${extra[@]}"} > "$markdown" || status=$?

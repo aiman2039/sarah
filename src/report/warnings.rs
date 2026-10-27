@@ -1,35 +1,40 @@
 use std::cmp::Reverse;
 
-use super::model::{FileLimits, TopFn, Warning};
+use super::model::{TopFn, Warning, WarningKind};
+use crate::config::{LimitRules, Limits};
 use crate::count::FileStats;
-use crate::units::Lines;
 
 impl Warning {
-    /// Files over the token or line limit, in report order.
-    pub(super) fn for_files(files: &[FileStats], limits: &FileLimits) -> Vec<Self> {
+    /// Files over their token or line limit, in report order.
+    pub(super) fn for_files(files: &[FileStats], rules: &LimitRules) -> Vec<Self> {
         files
             .iter()
-            .filter_map(|f| Self::for_file(f, limits))
+            .filter_map(|f| Self::for_file(f, &rules.for_path(&f.path)))
             .collect()
     }
 
-    /// Functions over the line limit, in ranked order.
-    pub(super) fn for_functions(functions: &[TopFn], max_lines: Lines) -> Vec<Self> {
+    /// Functions over their size or nesting limits, in ranked order.
+    pub(super) fn for_functions(functions: &[TopFn], rules: &LimitRules) -> Vec<Self> {
         functions
             .iter()
-            .filter(|x| x.lines > max_lines)
-            .map(|x| Self::for_function(x, max_lines))
+            .flat_map(|func| {
+                let limits = rules.for_path(&func.path);
+                [
+                    Self::for_large_function(func, &limits),
+                    Self::for_deep_function(func, &limits),
+                ]
+            })
+            .flatten()
             .collect()
     }
 
-    fn for_file(f: &FileStats, limits: &FileLimits) -> Option<Self> {
-        let FileLimits { tokens, lines } = limits;
+    fn for_file(f: &FileStats, limits: &Limits) -> Option<Self> {
         let mut over = Vec::new();
-        if f.tokens > *tokens {
-            over.push(format!("{} tokens (>{tokens})", f.tokens));
+        if f.tokens > limits.file_tokens {
+            over.push(format!("{} tokens (>{})", f.tokens, limits.file_tokens));
         }
-        if f.lines > *lines {
-            over.push(format!("{} lines (>{lines})", f.lines));
+        if f.lines > limits.file_lines {
+            over.push(format!("{} lines (>{})", f.lines, limits.file_lines));
         }
         if over.is_empty() {
             return None;
@@ -47,27 +52,57 @@ impl Warning {
                 .collect();
             format!("; largest fns: {}", names.join(", "))
         };
-        Some(Self {
-            path: f.path.clone(),
-            kind: "large_file",
-            message: format!("{} — consider splitting{hint}", over.join(", ")),
-        })
+        Some(Self::new(
+            f.path.clone(),
+            WarningKind::LargeFile,
+            format!("{} — consider splitting{hint}", over.join(", ")),
+        ))
     }
 
-    fn for_function(func: &TopFn, max_lines: Lines) -> Self {
-        Self {
-            path: func.path.clone(),
-            kind: "large_function",
-            message: format!(
-                "{} {} at L{}-{}: {} lines (>{}), {} tokens — consider extracting helpers",
-                func.kind,
-                func.name,
-                func.start_line,
-                func.end_line,
-                func.lines,
-                max_lines,
-                func.tokens
-            ),
+    fn for_large_function(func: &TopFn, limits: &Limits) -> Option<Self> {
+        let long = func.lines > limits.fn_lines;
+        let heavy = limits.fn_tokens.filter(|max| func.tokens > *max);
+        if !long && heavy.is_none() {
+            return None;
         }
+        let lines = if long {
+            format!("{} lines (>{})", func.lines, limits.fn_lines)
+        } else {
+            format!("{} lines", func.lines)
+        };
+        let tokens = match heavy {
+            Some(max) => format!("{} tokens (>{max})", func.tokens),
+            None => format!("{} tokens", func.tokens),
+        };
+        Some(Self::function(
+            func,
+            WarningKind::LargeFunction,
+            format!("{lines}, {tokens} — consider extracting helpers"),
+        ))
+    }
+
+    fn for_deep_function(func: &TopFn, limits: &Limits) -> Option<Self> {
+        let max = limits.fn_depth.filter(|max| func.depth > *max)?;
+        Some(Self::function(
+            func,
+            WarningKind::DeepFunction,
+            format!(
+                "nesting depth {} (>{max}) — use early returns or extract the inner blocks",
+                func.depth
+            ),
+        ))
+    }
+
+    fn function(func: &TopFn, kind: WarningKind, detail: String) -> Self {
+        Self::new(
+            func.path.clone(),
+            kind,
+            format!(
+                "{} {} at L{}-{}: {detail}",
+                func.kind, func.name, func.start_line, func.end_line
+            ),
+        )
+        .at_line(func.start_line)
+        .about(func.name.clone())
     }
 }

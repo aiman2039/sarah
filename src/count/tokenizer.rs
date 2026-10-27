@@ -1,4 +1,5 @@
 use clap::ValueEnum;
+use derive_more::Display;
 use rayon::prelude::*;
 
 use super::chunk::ChunkHelpers;
@@ -7,9 +8,11 @@ use crate::units::Tokens;
 
 /// Claude's tokenizer isn't public; the `o200k`/`cl100k` encodings (via `bpe-openai`,
 /// which matches `tiktoken` exactly) are a close approximation.
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, Display, ValueEnum)]
 pub enum Tokenizer {
+    #[display("o200k")]
     O200k,
+    #[display("cl100k")]
     Cl100k,
 }
 

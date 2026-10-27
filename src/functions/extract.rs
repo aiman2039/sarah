@@ -5,8 +5,9 @@ use serde::Serialize;
 use tree_sitter_tags::TagsContext;
 
 use super::lang::Lang;
+use super::nesting::NestingHelpers;
 use crate::count::Tokenizer;
-use crate::units::{LineNo, Lines, Tokens};
+use crate::units::{Depth, LineNo, Lines, Tokens};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FnStats {
@@ -16,12 +17,16 @@ pub struct FnStats {
     pub end_line: LineNo,
     pub lines: Lines,
     pub tokens: Tokens,
+    /// Deepest control-flow nesting inside the function.
+    pub depth: Depth,
 }
 
 impl FnStats {
     /// Extract function/method definitions with their sizes. Returns `None` for unsupported languages.
     pub fn extract(path: &Path, source: &str, tokenizer: Tokenizer) -> Option<Vec<Self>> {
-        let config = Lang::from_path(path)?.config()?;
+        let lang = Lang::from_path(path)?;
+        let config = lang.config()?;
+        let tree = NestingHelpers::parse(lang, source)?;
         let mut ctx = TagsContext::new();
         let (tags, _) = ctx.generate_tags(config, source.as_bytes(), None).ok()?;
 
@@ -53,6 +58,7 @@ impl FnStats {
                 end_line,
                 lines: start_line.span_to(end_line),
                 tokens: tokenizer.count(body),
+                depth: NestingHelpers::depth_of(lang, &tree, tag.range.clone()),
             });
         }
         Some(out)
@@ -101,6 +107,26 @@ mod tests {
         assert!(got.iter().any(|f| f.0 == "f"));
         assert!(got.iter().any(|f| f.0 == "m"));
         assert!(!names(Sample { path: "x.tsx", src }).is_empty());
+    }
+
+    #[test]
+    fn new_languages() {
+        let samples = [
+            ("x.java", "class C {\n  void m() {\n  }\n}\n", "m"),
+            ("x.c", "int f(void) {\n  return 1;\n}\n", "f"),
+            (
+                "x.cpp",
+                "struct S { void m() {} };\nint f() {\n  return 1;\n}\n",
+                "f",
+            ),
+            ("x.cs", "class C {\n  C() {}\n  void M() {\n  }\n}\n", "M"),
+            ("x.rb", "class C\n  def m\n  end\nend\n", "m"),
+            ("x.php", "<?php\nfunction f() {\n  return 1;\n}\n", "f"),
+        ];
+        for (path, src, name) in samples {
+            let got = names(Sample { path, src });
+            assert!(got.iter().any(|f| f.0 == name), "{path}: {got:?}");
+        }
     }
 
     #[test]

@@ -27,14 +27,75 @@ sarah -f json                     # full report for agents
 sarah -f md                       # markdown to paste into an agent's context
 sarah --fail-on-warn              # exit 1 if anything exceeds limits (CI / agent loops)
 sarah -f md --json-out r.json     # markdown on stdout, full JSON in a file
+sarah --dirs                      # add per-folder totals to the table
+sarah -f github                   # GitHub Actions ::warning annotations
+sarah -f sarif > sarah.sarif      # SARIF 2.1.0 for code scanning
+sarah -f json > baseline.json     # save today's warnings...
+sarah --baseline baseline.json    # ...then report only new ones, or ones that got worse
+sarah --changed-since origin/main # only warnings for files changed on this branch
 ```
 
 Key flags: `--sort tokens|lines|name`, `-n/--top N`, `--tokenizer o200k|cl100k`,
 `--max-file-tokens 8000`, `--max-file-lines 500`, `--max-fn-lines 80`,
+`--max-fn-tokens N` and `--max-fn-depth N` (off by default),
 `-i/--include GLOB`, `-e/--exclude GLOB`, `--hidden`, `--no-functions`,
-`--no-default-excludes` (lockfiles, `*.min.js`, `*.map` are skipped by default).
+`--no-default-excludes` (lockfiles, `*.min.js`, `*.map` are skipped by default),
+`--config FILE` (default: `<PATH>/sarah.toml` when it exists).
 
-Function extraction: Rust, Python, JavaScript, TypeScript/TSX, Go.
+Exit codes: `0` success, `1` warnings with `--fail-on-warn`, `2` error.
+
+Function extraction: Rust, Python, JavaScript, TypeScript/TSX, Go, Java, C, C++, C#,
+Ruby, PHP. Each function has a nesting `depth`: the deepest chain of `if`/loop/`match`/
+`switch`/`try` blocks (`else if` chains count once).
+
+The JSON report also has `directories`: per folder, its direct `files` and `dirs`, and
+`total_files`, `lines` and `tokens` for the whole subtree.
+
+## Config: `sarah.toml`
+
+Optional. Without it, sarah behaves as above. CLI flags win over the file.
+
+```toml
+preset = "rust"            # rust | python | go | ts: built-in folder rules, applied first
+exclude = ["vendor/**"]    # added to --exclude (include = [...] too)
+
+# Size limits per glob. Later matches override earlier ones, field by field.
+[[files]]
+path = "**"
+max_fn_lines = 60
+max_fn_depth = 4
+
+[[files]]
+path = "tests/**"
+max_fn_lines = 200          # max_file_tokens, max_file_lines, max_fn_tokens also work
+
+# Folder rules. Later matches override earlier ones, field by field.
+[[folder]]
+path = "src/**"             # `*` = one path part, `**` = any; the root is "." (or "**")
+max_files = 12              # files directly in the folder
+max_dirs = 8                # sub-folders directly in the folder
+max_depth = 4               # levels below the root; reported once per branch
+max_tokens = 40000          # tokens in the whole subtree (one agent context)
+min_files = 2               # direct entries (files + folders); fewer = flatten it
+require = ["mod.rs"]        # each glob must match a file in the folder
+forbid = ["utils*", "misc*"] # no file or folder name may match
+allow_only = ["cli", "walk"] # sub-folder names must match one of these
+naming = "snake_case"       # snake_case | kebab-case | camelCase | PascalCase
+no_sibling_module = true    # no `x.rs` next to `x/`
+
+[[folder]]
+path = "src/generated/**"
+max_files = 100
+require = []                # an empty list turns a rule off
+```
+
+Folder warnings use kinds such as `folder_too_many_files` and `folder_bad_name`. They
+work with `--fail-on-warn`, `--baseline`, `--changed-since` and annotations.
+
+`--baseline` matches warnings by path, kind and `subject` (function name or glob), and
+shows a warning again when its file, function or folder grew. `--changed-since REV`
+compares with the merge base of `REV` and `HEAD`, and counts uncommitted and untracked
+files.
 
 Token counts use OpenAI encodings; Claude's tokenizer isn't public, so treat them as a close approximation.
 
@@ -50,9 +111,9 @@ Installs the released binary for the runner (Linux, macOS, Windows; x64 and ARM6
 released), writes the markdown report to the job summary and exposes the JSON report.
 
 ```yaml
-- uses: actions/checkout@v6
+- uses: actions/checkout@v7
 - id: sarah
-  uses: aiman2039/sarah@v0.2.0   # a release tag; @master installs the latest release
+  uses: aiman2039/sarah@v0.1.3   # a release tag; @master installs the latest release
   with:
     path: .
     args: --max-fn-lines 60 --exclude 'vendor/**'
@@ -66,6 +127,7 @@ released), writes the markdown report to the job summary and exposes the JSON re
 | `args` | | Extra `sarah` arguments |
 | `fail-on-warn` | `false` | Fail the step when limits are exceeded |
 | `summary` | `true` | Write the markdown report to the job summary |
+| `annotations` | `true` | Annotate the files (and lines) that have warnings |
 | `version` | action ref if it is a tag, else latest | Release tag to install |
 | `token` | `github.token` | Token used to download the release |
 

@@ -4,13 +4,17 @@ use clap::{Parser, ValueEnum};
 
 use crate::count::Tokenizer;
 use crate::report::SortBy;
-use crate::units::{Lines, Tokens};
+use crate::units::{Depth, Lines, Tokens};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum Format {
     Table,
     Json,
     Md,
+    /// GitHub Actions `::warning` annotations
+    Github,
+    /// SARIF 2.1.0 for code scanning
+    Sarif,
 }
 
 /// Count tokens, lines and function sizes per file to help AI agents decide what to refactor.
@@ -35,14 +39,41 @@ pub struct Args {
     #[arg(short, long, value_enum, default_value_t = Tokenizer::O200k)]
     pub tokenizer: Tokenizer,
 
-    #[arg(long, default_value_t = Tokens(8000))]
-    pub max_file_tokens: Tokens,
+    /// [default: 8000]
+    #[arg(long)]
+    pub max_file_tokens: Option<Tokens>,
 
-    #[arg(long, default_value_t = Lines(500))]
-    pub max_file_lines: Lines,
+    /// [default: 500]
+    #[arg(long)]
+    pub max_file_lines: Option<Lines>,
 
-    #[arg(long, default_value_t = Lines(80))]
-    pub max_fn_lines: Lines,
+    /// [default: 80]
+    #[arg(long)]
+    pub max_fn_lines: Option<Lines>,
+
+    /// Warn on functions over this many tokens [default: off]
+    #[arg(long)]
+    pub max_fn_tokens: Option<Tokens>,
+
+    /// Warn on functions nested deeper than this (if/loop/match levels) [default: off]
+    #[arg(long)]
+    pub max_fn_depth: Option<Depth>,
+
+    /// Show per-folder totals in table/md output (JSON always has them)
+    #[arg(long)]
+    pub dirs: bool,
+
+    /// Config file [default: <PATH>/sarah.toml when it exists]
+    #[arg(long, value_name = "FILE")]
+    pub config: Option<PathBuf>,
+
+    /// Hide warnings already in this JSON report, unless they got worse
+    #[arg(long, value_name = "FILE")]
+    pub baseline: Option<PathBuf>,
+
+    /// Only report warnings for files changed since this git revision (and their folders)
+    #[arg(long, value_name = "REV")]
+    pub changed_since: Option<String>,
 
     /// Skip tree-sitter function extraction
     #[arg(long)]
@@ -64,7 +95,7 @@ pub struct Args {
     #[arg(long)]
     pub no_default_excludes: bool,
 
-    /// Exit with code 1 if any warnings are reported
+    /// Exit with code 1 if any warnings are reported (errors always exit with 2)
     #[arg(long)]
     pub fail_on_warn: bool,
 

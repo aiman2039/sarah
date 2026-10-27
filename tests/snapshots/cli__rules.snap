@@ -1,0 +1,51 @@
+---
+source: tests/cli.rs
+expression: output
+---
+# Repo size report
+
+**3 files**, 38 lines (29 code, 2 comments, 7 blank), **215 tokens** (tokenizer: o200k)
+
+
+## Languages
+
+| Language | Files | Lines | Code | Tokens |
+|---|---:|---:|---:|---:|
+| Rust | 1 | 22 | 19 | 144 |
+| Python | 1 | 11 | 6 | 40 |
+| TypeScript | 1 | 5 | 4 | 31 |
+
+## Files (top 20)
+
+| File | Lines | Code | Tokens | Fns |
+|---|---:|---:|---:|---:|
+| `src/big.rs` | 22 | 19 | 144 | 2 |
+| `tool.py` | 11 | 6 | 40 | 2 |
+| `web/app.ts` | 5 | 4 | 31 | 1 |
+
+## Functions (top 20 by lines)
+
+| Function | Location | Lines | Tokens |
+|---|---|---:|---:|
+| `long_one` | `src/big.rs:3` | 16 | 118 |
+| `add` | `web/app.ts:1` | 3 | 19 |
+| `greet` | `tool.py:4` | 3 | 17 |
+| `short_one` | `src/big.rs:20` | 3 | 14 |
+| `run` | `tool.py:10` | 2 | 10 |
+
+## Folders (top 20 by tokens)
+
+| Folder | Files | Dirs | Total files | Lines | Tokens |
+|---|---:|---:|---:|---:|---:|
+| `.` | 1 | 2 | 3 | 38 | 215 |
+| `src` | 1 | 0 | 1 | 22 | 144 |
+| `web` | 1 | 0 | 1 | 5 | 31 |
+
+## Refactor candidates (6):
+
+- src/big.rs: 22 lines (>20) — consider splitting; largest fns: long_one (16 lines), short_one (3 lines)
+- src/big.rs: function long_one at L3-18: 16 lines (>10), 118 tokens — consider extracting helpers
+- web/app.ts: function add at L1-3: 3 lines, 19 tokens (>5) — consider extracting helpers
+- tool.py: name matches forbidden "tool*" — name it after what it does
+- web: no file matches required "index.*"
+- web/app.ts: name is not PascalCase
