@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::LimitRules;
 use crate::count::FileStats;
 use crate::structure::{DirStats, DirTree, FolderRules};
-use crate::units::{Bytes, Depth, LineNo, Lines, Tokens};
+use crate::units::{Bytes, Cognitive, Cyclomatic, Depth, LineNo, Lines, Params, Tokens};
 use crate::walk::Skipped;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -87,6 +87,10 @@ pub struct TopFn {
     pub lines: Lines,
     pub tokens: Tokens,
     pub depth: Depth,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<Params>,
+    pub cyclomatic: Cyclomatic,
+    pub cognitive: Cognitive,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allow: Vec<WarningKind>,
 }
@@ -110,6 +114,9 @@ impl TopFn {
                         lines: func.lines,
                         tokens: func.tokens,
                         depth: func.depth,
+                        params: func.params,
+                        cyclomatic: func.cyclomatic,
+                        cognitive: func.cognitive,
                         allow: func.allow.clone(),
                     })
             })
@@ -126,6 +133,10 @@ pub enum WarningKind {
     LargeFile,
     LargeFunction,
     DeepFunction,
+    /// More parameters than `max_fn_params`.
+    TooManyParams,
+    /// Over `max_fn_cyclomatic` or `max_fn_cognitive`.
+    ComplexFunction,
     FolderTooManyFiles,
     FolderTooManyDirs,
     FolderTooDeep,
@@ -138,6 +149,13 @@ pub enum WarningKind {
     FolderUnexpectedDir,
     /// A malformed or misplaced `sarah-allow` comment.
     BadAllow,
+}
+
+impl WarningKind {
+    /// Folder-structure warnings (as opposed to file and function warnings).
+    pub fn is_folder(self) -> bool {
+        self.to_string().starts_with("folder_")
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -285,6 +303,9 @@ mod tests {
                 lines: fn_lines,
                 tokens: Tokens(10),
                 depth: Depth(0),
+                params: None,
+                cyclomatic: Cyclomatic(1),
+                cognitive: Cognitive(0),
                 allow: Vec::new(),
             }]),
             allows: Allows::default(),

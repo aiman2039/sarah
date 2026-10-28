@@ -37,11 +37,18 @@ impl Scope {
     /// What a directive of this scope may allow; also the default for an omitted list.
     pub(super) fn allowed_kinds(self) -> &'static [WarningKind] {
         match self {
-            Self::Function => &[WarningKind::LargeFunction, WarningKind::DeepFunction],
+            Self::Function => &[
+                WarningKind::LargeFunction,
+                WarningKind::DeepFunction,
+                WarningKind::TooManyParams,
+                WarningKind::ComplexFunction,
+            ],
             Self::File => &[
                 WarningKind::LargeFile,
                 WarningKind::LargeFunction,
                 WarningKind::DeepFunction,
+                WarningKind::TooManyParams,
+                WarningKind::ComplexFunction,
             ],
         }
     }

@@ -1,0 +1,13 @@
+# Limits at today's maximums (`sarah init`): new code cannot be worse than the worst file today.
+# `sarah ratchet` lowers them as the code improves; it never raises them.
+
+[[files]]
+path = "**"
+max_file_tokens = 3131
+max_file_lines = 363
+max_fn_lines = 51
+max_fn_tokens = 480
+max_fn_depth = 4
+max_fn_params = 3
+max_fn_cyclomatic = 21
+max_fn_cognitive = 13

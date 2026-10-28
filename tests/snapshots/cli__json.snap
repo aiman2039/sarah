@@ -60,7 +60,10 @@ expression: output
           "end_line": 18,
           "lines": 16,
           "tokens": 118,
-          "depth": 0
+          "depth": 0,
+          "params": 1,
+          "cyclomatic": 1,
+          "cognitive": 0
         },
         {
           "name": "short_one",
@@ -69,7 +72,10 @@ expression: output
           "end_line": 22,
           "lines": 3,
           "tokens": 14,
-          "depth": 0
+          "depth": 0,
+          "params": 0,
+          "cyclomatic": 1,
+          "cognitive": 0
         }
       ]
     },
@@ -90,7 +96,10 @@ expression: output
           "end_line": 6,
           "lines": 3,
           "tokens": 17,
-          "depth": 0
+          "depth": 0,
+          "params": 1,
+          "cyclomatic": 1,
+          "cognitive": 0
         },
         {
           "name": "run",
@@ -99,7 +108,10 @@ expression: output
           "end_line": 11,
           "lines": 2,
           "tokens": 10,
-          "depth": 0
+          "depth": 0,
+          "params": 0,
+          "cyclomatic": 1,
+          "cognitive": 0
         }
       ]
     },
@@ -120,7 +132,10 @@ expression: output
           "end_line": 3,
           "lines": 3,
           "tokens": 19,
-          "depth": 0
+          "depth": 0,
+          "params": 2,
+          "cyclomatic": 1,
+          "cognitive": 0
         }
       ]
     }
@@ -134,7 +149,10 @@ expression: output
       "end_line": 18,
       "lines": 16,
       "tokens": 118,
-      "depth": 0
+      "depth": 0,
+      "params": 1,
+      "cyclomatic": 1,
+      "cognitive": 0
     },
     {
       "path": "web/app.ts",
@@ -144,7 +162,10 @@ expression: output
       "end_line": 3,
       "lines": 3,
       "tokens": 19,
-      "depth": 0
+      "depth": 0,
+      "params": 2,
+      "cyclomatic": 1,
+      "cognitive": 0
     },
     {
       "path": "tool.py",
@@ -154,7 +175,10 @@ expression: output
       "end_line": 6,
       "lines": 3,
       "tokens": 17,
-      "depth": 0
+      "depth": 0,
+      "params": 1,
+      "cyclomatic": 1,
+      "cognitive": 0
     },
     {
       "path": "src/big.rs",
@@ -164,7 +188,10 @@ expression: output
       "end_line": 22,
       "lines": 3,
       "tokens": 14,
-      "depth": 0
+      "depth": 0,
+      "params": 0,
+      "cyclomatic": 1,
+      "cognitive": 0
     },
     {
       "path": "tool.py",
@@ -174,7 +201,10 @@ expression: output
       "end_line": 11,
       "lines": 2,
       "tokens": 10,
-      "depth": 0
+      "depth": 0,
+      "params": 0,
+      "cyclomatic": 1,
+      "cognitive": 0
     }
   ],
   "directories": [
@@ -225,6 +255,7 @@ expression: output
     "outside_root": 0,
     "dir_links": 0,
     "duplicates": 0,
-    "errors": 0
+    "errors": 0,
+    "generated": 0
   }
 }

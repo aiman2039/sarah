@@ -4,6 +4,8 @@ mod config;
 mod count;
 mod functions;
 mod git;
+mod mcp;
+mod ratchet;
 mod report;
 mod structure;
 mod units;

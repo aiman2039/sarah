@@ -2,13 +2,17 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use serde::Serialize;
+use tree_sitter::{Parser, Tree};
 use tree_sitter_tags::TagsContext;
 
+use super::complexity::{Complexity, ComplexityHelpers};
 use super::lang::Lang;
 use super::nesting::NestingHelpers;
+use super::params::ParamHelpers;
+use super::scope::Scope;
 use crate::count::Tokenizer;
 use crate::report::WarningKind;
-use crate::units::{Depth, LineNo, Lines, Tokens};
+use crate::units::{Cognitive, Cyclomatic, Depth, LineNo, Lines, Params, Tokens};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FnStats {
@@ -20,6 +24,11 @@ pub struct FnStats {
     pub tokens: Tokens,
     /// Deepest control-flow nesting inside the function.
     pub depth: Depth,
+    /// Declared parameters; `None` for languages without a parameter table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<Params>,
+    pub cyclomatic: Cyclomatic,
+    pub cognitive: Cognitive,
     /// Warning kinds a `sarah-allow` comment above the function turns off.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allow: Vec<WarningKind>,
@@ -30,7 +39,7 @@ impl FnStats {
     pub fn extract(path: &Path, source: &str, tokenizer: Tokenizer) -> Option<Vec<Self>> {
         let lang = Lang::from_path(path)?;
         let config = lang.config()?;
-        let tree = NestingHelpers::parse(lang, source)?;
+        let tree = Self::parse(lang, source)?;
         let mut ctx = TagsContext::new();
         let (tags, _) = ctx.generate_tags(config, source.as_bytes(), None).ok()?;
 
@@ -46,13 +55,20 @@ impl FnStats {
                 continue;
             }
             // Tag ranges come from the parser and land on UTF-8 boundaries; skip any that don't.
-            let (Some(body), Some(name), Some(before)) = (
+            let (Some(body), Some(name), Some(before), Some(node)) = (
                 source.get(tag.range.clone()),
                 source.get(tag.name_range),
                 source.get(..tag.range.start),
+                tree.root_node()
+                    .descendant_for_byte_range(tag.range.start, tag.range.end),
             ) else {
                 continue;
             };
+            let scope = Scope { lang, node, source };
+            let Complexity {
+                cyclomatic,
+                cognitive,
+            } = ComplexityHelpers::measure(&scope);
             let start_line = LineNo(1).below(before.matches('\n').count());
             let end_line = start_line.below(body.matches('\n').count());
             out.push(Self {
@@ -62,11 +78,20 @@ impl FnStats {
                 end_line,
                 lines: start_line.span_to(end_line),
                 tokens: tokenizer.count(body),
-                depth: NestingHelpers::depth_of(lang, &tree, tag.range.clone()),
+                depth: NestingHelpers::depth(&scope),
+                params: ParamHelpers::count(&scope),
+                cyclomatic,
+                cognitive,
                 allow: Vec::new(),
             });
         }
         Some(out)
+    }
+
+    fn parse(lang: Lang, source: &str) -> Option<Tree> {
+        let mut parser = Parser::new();
+        parser.set_language(&lang.language()).ok()?;
+        parser.parse(source, None)
     }
 }
 
@@ -127,11 +152,32 @@ mod tests {
             ("x.cs", "class C {\n  C() {}\n  void M() {\n  }\n}\n", "M"),
             ("x.rb", "class C\n  def m\n  end\nend\n", "m"),
             ("x.php", "<?php\nfunction f() {\n  return 1;\n}\n", "f"),
+            ("x.kt", "fun f(): Int {\n  return 1\n}\n", "f"),
+            ("x.swift", "func f() -> Int {\n  return 1\n}\n", "f"),
+            ("x.scala", "object O {\n  def f(): Int = 1\n}\n", "f"),
+            ("x.lua", "local function f()\n  return 1\nend\n", "f"),
+            ("x.ex", "defmodule M do\n  def f(a), do: a\nend\n", "f"),
+            ("x.zig", "fn f() u8 {\n    return 1;\n}\n", "f"),
+            ("x.sh", "f() {\n  echo hi\n}\n", "f"),
         ];
         for (path, src, name) in samples {
             let got = names(Sample { path, src });
             assert!(got.iter().any(|f| f.0 == name), "{path}: {got:?}");
         }
+    }
+
+    #[test]
+    fn c_functions_span_their_body_and_skip_prototypes() {
+        let src =
+            "int g(int a);\nint f(int a) {\n  return a;\n}\nchar *p(void) {\n  return 0;\n}\n";
+        let got = names(Sample { path: "x.c", src });
+        assert_eq!(
+            got,
+            vec![
+                ("f".into(), "function".into(), 2, 4),
+                ("p".into(), "function".into(), 5, 7)
+            ]
+        );
     }
 
     #[test]

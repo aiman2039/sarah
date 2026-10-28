@@ -6,4 +6,4 @@ mod limits;
 
 pub use file::Config;
 pub use glob::{DirPattern, NamePatterns};
-pub use limits::{LimitPatch, LimitRules, Limits};
+pub use limits::{LimitKey, LimitPatch, LimitRules, Limits};

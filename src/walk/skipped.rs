@@ -14,6 +14,8 @@ pub struct Skipped {
     pub duplicates: usize,
     /// Unreadable entries (permissions, races with deletion).
     pub errors: usize,
+    /// Files with a generated-code header (`@generated`, `DO NOT EDIT`, ...).
+    pub generated: usize,
 }
 
 impl Skipped {
@@ -24,6 +26,7 @@ impl Skipped {
             self.dir_links,
             self.duplicates,
             self.errors,
+            self.generated,
         ]
         .iter()
         .fold(0, |a, b| a.saturating_add(*b))

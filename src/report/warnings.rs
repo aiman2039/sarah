@@ -22,6 +22,8 @@ impl Warning {
                 [
                     Self::for_large_function(func, &limits),
                     Self::for_deep_function(func, &limits),
+                    Self::for_many_params(func, &limits),
+                    Self::for_complex_function(func, &limits),
                 ]
             })
             .flatten()
@@ -106,6 +108,39 @@ impl Warning {
             format!(
                 "nesting depth {} (>{max}) — use early returns or extract the inner blocks",
                 func.depth
+            ),
+        ))
+    }
+
+    fn for_many_params(func: &TopFn, limits: &Limits) -> Option<Self> {
+        let max = limits.fn_params?;
+        let params = func.params.filter(|p| *p > max)?;
+        Some(Self::function(
+            func,
+            WarningKind::TooManyParams,
+            format!("{params} parameters (>{max}) — group them in an input struct"),
+        ))
+    }
+
+    fn for_complex_function(func: &TopFn, limits: &Limits) -> Option<Self> {
+        let cyclomatic = limits.fn_cyclomatic.filter(|max| func.cyclomatic > *max);
+        let cognitive = limits.fn_cognitive.filter(|max| func.cognitive > *max);
+        let over: Vec<_> = [
+            cyclomatic.map(|max| format!("cyclomatic {} (>{max})", func.cyclomatic)),
+            cognitive.map(|max| format!("cognitive {} (>{max})", func.cognitive)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if over.is_empty() {
+            return None;
+        }
+        Some(Self::function(
+            func,
+            WarningKind::ComplexFunction,
+            format!(
+                "complexity {} — split the branches into named helpers",
+                over.join(", ")
             ),
         ))
     }

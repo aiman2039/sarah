@@ -62,6 +62,61 @@ pub struct Bytes(pub usize);
 #[serde(transparent)]
 pub struct Depth(pub usize);
 
+/// Parameters a function declares (receivers like `self` excluded).
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Params(pub usize);
+
+/// McCabe cyclomatic complexity: 1 + branches, case arms and `&&`/`||` operators.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Cyclomatic(pub usize);
+
+/// SonarSource cognitive complexity: branches weighted by nesting, plus `else` and
+/// each run of like boolean operators.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Cognitive(pub usize);
+
 impl Tokens {
     pub fn saturating_add(self, rhs: Self) -> Self {
         Self(self.0.saturating_add(rhs.0))

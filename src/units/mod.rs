@@ -3,5 +3,5 @@
 mod counts;
 mod position;
 
-pub use counts::{Bytes, Depth, Lines, Tokens};
+pub use counts::{Bytes, Cognitive, Cyclomatic, Depth, Lines, Params, Tokens};
 pub use position::LineNo;

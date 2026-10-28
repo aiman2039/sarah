@@ -40,11 +40,16 @@ impl Config {
     }
 
     fn locate(root: &Path, explicit: Option<&Path>) -> Option<PathBuf> {
-        if let Some(path) = explicit {
-            return Some(path.to_path_buf());
+        if explicit.is_some() {
+            return Some(Self::target(root, explicit));
         }
-        let default = root.join(CONFIG_FILE);
+        let default = Self::target(root, None);
         default.is_file().then_some(default)
+    }
+
+    /// Where the config is (or would be): `explicit`, else `<root>/sarah.toml`.
+    pub fn target(root: &Path, explicit: Option<&Path>) -> PathBuf {
+        explicit.map_or_else(|| root.join(CONFIG_FILE), Path::to_path_buf)
     }
 }
 

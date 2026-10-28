@@ -15,8 +15,14 @@ impl Report {
         if s.total() == 0 {
             return String::new();
         }
+        // Only shown when present, so reports without generated files keep their exact text.
+        let generated = if s.generated == 0 {
+            String::new()
+        } else {
+            format!(", {} generated", s.generated)
+        };
         format!(
-            "Skipped: {} broken links, {} links outside root, {} directory links, {} duplicate/excluded link targets, {} unreadable\n",
+            "Skipped: {} broken links, {} links outside root, {} directory links, {} duplicate/excluded link targets, {} unreadable{generated}\n",
             s.broken_links, s.outside_root, s.dir_links, s.duplicates, s.errors
         )
     }

@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use super::model::{Report, Warning, WarningKind};
 use crate::structure::DirStats;
-use crate::units::{Depth, Lines, Tokens};
+use crate::units::{Cognitive, Cyclomatic, Depth, Lines, Params, Tokens};
 
 /// A JSON report from an earlier run. Its warnings are hidden unless the measured
 /// sizes grew since.
@@ -16,6 +16,9 @@ pub struct Baseline {
 }
 
 type Key = (PathBuf, WarningKind, Option<String>);
+
+/// Lines, tokens, depth, parameters, cyclomatic and cognitive complexity of a function.
+type FnSizes = [usize; 6];
 
 /// The fields of a saved JSON report that the baseline needs.
 #[derive(Deserialize)]
@@ -42,6 +45,12 @@ struct SavedFn {
     tokens: Tokens,
     #[serde(default)]
     depth: Depth,
+    #[serde(default)]
+    params: Option<Params>,
+    #[serde(default)]
+    cyclomatic: Cyclomatic,
+    #[serde(default)]
+    cognitive: Cognitive,
 }
 
 #[derive(Deserialize)]
@@ -56,7 +65,7 @@ struct SavedWarning {
 #[derive(Default)]
 struct Sizes {
     files: HashMap<PathBuf, [usize; 3]>,
-    functions: HashMap<(PathBuf, String), [usize; 3]>,
+    functions: HashMap<(PathBuf, String), FnSizes>,
     dirs: HashMap<PathBuf, [usize; 3]>,
 }
 
@@ -81,7 +90,15 @@ impl Baseline {
             sizes.files.insert(f.path, [f.tokens.0, f.lines.0, 0]);
         }
         for f in functions {
-            sizes.add_function((f.path, f.name), [f.lines.0, f.tokens.0, f.depth.0]);
+            let fn_sizes = [
+                f.lines.0,
+                f.tokens.0,
+                f.depth.0,
+                f.params.map_or(0, |p| p.0),
+                f.cyclomatic.0,
+                f.cognitive.0,
+            ];
+            sizes.add_function((f.path, f.name), fn_sizes);
         }
         sizes.add_dirs(&directories);
         let known = warnings
@@ -112,17 +129,22 @@ impl Sizes {
                 .insert(f.path.clone(), [f.tokens.0, f.lines.0, 0]);
         }
         for f in &report.functions {
-            sizes.add_function(
-                (f.path.clone(), f.name.clone()),
-                [f.lines.0, f.tokens.0, f.depth.0],
-            );
+            let fn_sizes = [
+                f.lines.0,
+                f.tokens.0,
+                f.depth.0,
+                f.params.map_or(0, |p| p.0),
+                f.cyclomatic.0,
+                f.cognitive.0,
+            ];
+            sizes.add_function((f.path.clone(), f.name.clone()), fn_sizes);
         }
         sizes.add_dirs(&report.directories);
         sizes
     }
 
     /// Same-named functions in one file (overloads) keep the largest sizes.
-    fn add_function(&mut self, key: (PathBuf, String), sizes: [usize; 3]) {
+    fn add_function(&mut self, key: (PathBuf, String), sizes: FnSizes) {
         let entry = self.functions.entry(key).or_default();
         for (e, s) in entry.iter_mut().zip(sizes) {
             *e = (*e).max(s);
@@ -137,16 +159,20 @@ impl Sizes {
     }
 
     /// `None` for name-based warnings, which have no size.
-    fn of(&self, w: &Warning) -> Option<[usize; 3]> {
+    fn of(&self, w: &Warning) -> Option<Vec<usize>> {
         match w.kind {
-            WarningKind::LargeFile => self.files.get(&w.path).copied(),
-            WarningKind::LargeFunction | WarningKind::DeepFunction => {
+            WarningKind::LargeFile => self.files.get(&w.path).map(|s| s.to_vec()),
+            WarningKind::LargeFunction
+            | WarningKind::DeepFunction
+            | WarningKind::TooManyParams
+            | WarningKind::ComplexFunction => {
                 let name = w.subject.clone()?;
-                self.functions.get(&(w.path.clone(), name)).copied()
+                let sizes = self.functions.get(&(w.path.clone(), name))?;
+                Some(sizes.to_vec())
             }
             WarningKind::FolderTooManyFiles
             | WarningKind::FolderTooManyDirs
-            | WarningKind::FolderTooManyTokens => self.dirs.get(&w.path).copied(),
+            | WarningKind::FolderTooManyTokens => self.dirs.get(&w.path).map(|s| s.to_vec()),
             WarningKind::FolderTooDeep
             | WarningKind::FolderTooFewEntries
             | WarningKind::FolderMissingRequired
@@ -197,7 +223,7 @@ mod tests {
         current.files.insert("a.rs".into(), [100, 10, 0]);
         current
             .functions
-            .insert(("a.rs".into(), "f".into()), [51, 9, 0]);
+            .insert(("a.rs".into(), "f".into()), [51, 9, 0, 0, 1, 0]);
 
         assert!(baseline.covers(&warning(WarningKind::LargeFile, None), &current));
         assert!(!baseline.covers(&warning(WarningKind::LargeFunction, Some("f")), &current));

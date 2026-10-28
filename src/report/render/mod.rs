@@ -1,8 +1,10 @@
-//! Renderers: table and markdown for people, GitHub annotations and SARIF for CI.
+//! Renderers: table, markdown and an HTML treemap for people, GitHub annotations and
+//! SARIF for CI.
 //! JSON is `Report::to_json`.
 
 mod common;
 mod github;
+mod html;
 mod markdown;
 mod sarif;
 mod table;

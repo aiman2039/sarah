@@ -1,46 +1,25 @@
-use std::ops::Range;
-
-use tree_sitter::{Node, Parser, Tree};
-
-use super::lang::Lang;
+use super::scope::Scope;
 use crate::units::Depth;
 
 /// Stateless helpers that measure control-flow nesting in a syntax tree.
 pub(super) struct NestingHelpers;
 
 impl NestingHelpers {
-    pub(super) fn parse(lang: Lang, source: &str) -> Option<Tree> {
-        let mut parser = Parser::new();
-        parser.set_language(&lang.language()).ok()?;
-        parser.parse(source, None)
-    }
-
-    /// Deepest nesting below the node that spans `range` (a function definition).
-    pub(super) fn depth_of(lang: Lang, tree: &Tree, range: Range<usize>) -> Depth {
-        let Some(node) = tree
-            .root_node()
-            .descendant_for_byte_range(range.start, range.end)
-        else {
-            return Depth(0);
-        };
-        let kinds = lang.nesting_kinds();
+    /// Deepest nesting below the function node.
+    pub(super) fn depth(scope: &Scope) -> Depth {
+        let kinds = scope.grammar().nesting;
         let mut max = 0;
-        let mut stack = vec![(node, 0usize)];
+        let mut stack = vec![(scope.node, 0usize)];
         while let Some((parent, depth)) = stack.pop() {
             max = max.max(depth);
             let mut cursor = parent.walk();
             for child in parent.children(&mut cursor) {
-                let opens = kinds.contains(&child.kind()) && !Self::is_else_if(child, parent);
+                let opens =
+                    kinds.contains(&scope.kind_of(child)) && !Scope::is_else_if(child, parent);
                 stack.push((child, depth.saturating_add(usize::from(opens))));
             }
         }
         Depth(max)
-    }
-
-    /// `else if` continues a chain; it is not one level deeper.
-    fn is_else_if(child: Node, parent: Node) -> bool {
-        child.kind().contains("if")
-            && (parent.kind() == child.kind() || matches!(parent.kind(), "else_clause" | "else"))
     }
 }
 

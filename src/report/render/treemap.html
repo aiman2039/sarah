@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sarah report</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #dddcd6;
+  --ok: #5b8def; --warn: #e0663a; --tile-text: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --panel: #1f1f1d; --text: #ecebe6; --muted: #9b9a93; --line: #34332f;
+    --ok: #4d7ad4; --warn: #d6582d; --tile-text: #ffffff;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 28px 0 8px; }
+.muted { color: var(--muted); }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 12px 0 16px; }
+.stats b { font-variant-numeric: tabular-nums; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.crumbs button, .bar select { font: inherit; color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+#map { position: relative; width: 100%; height: min(70vh, 640px); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.tile { position: absolute; overflow: hidden; border: 1px solid var(--panel);
+  color: var(--tile-text); font-size: 12px; padding: 2px 4px; cursor: pointer;
+  white-space: nowrap; text-overflow: ellipsis; }
+.tile.dir { background: transparent; border-color: var(--line); color: var(--muted);
+  padding: 0; cursor: zoom-in; }
+.tile.dir > .label { padding: 1px 4px; font-weight: 600; }
+#tip { position: fixed; pointer-events: none; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.15); display: none; max-width: 360px; z-index: 2; }
+.legend { display: flex; gap: 14px; font-size: 12px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px;
+  vertical-align: -1px; }
+table { width: 100%; border-collapse: collapse; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line);
+  vertical-align: top; }
+th { font-weight: 600; color: var(--muted); }
+td.path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  word-break: break-all; }
+.scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>sarah report</h1>
+  <div class="muted" id="sub"></div>
+  <div class="stats" id="stats"></div>
+  <div class="bar">
+    <div class="crumbs" id="crumbs"></div>
+    <label class="muted">Size <select id="size">
+      <option value="tokens">tokens</option><option value="lines">lines</option>
+    </select></label>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--ok)"></span>no warnings</span>
+      <span><span class="sw" style="background:var(--warn)"></span>has warnings</span>
+    </div>
+  </div>
+  <div id="map" role="img" aria-label="Treemap of files by size"></div>
+  <h2 id="warnings-title">Warnings</h2>
+  <div class="scroll"><table id="warnings"></table></div>
+</main>
+<div id="tip"></div>
+<script type="application/json" id="data">__SARAH_DATA__</script>
+<script>
+(() => {
+  const data = JSON.parse(document.getElementById("data").textContent);
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => n.toLocaleString("en-US");
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  const t = data.totals;
+  $("sub").textContent = `Tokenizer ${data.tokenizer}`;
+  $("stats").innerHTML = [
+    ["files", t.files], ["lines", t.lines], ["code", t.code], ["tokens", t.tokens],
+    ["warnings", data.warnings.length],
+  ].map(([k, v]) => `<span><b>${fmt(v)}</b> <span class="muted">${k}</span></span>`).join("");
+
+  // Folder tree from file paths.
+  const root = { name: ".", path: "", children: new Map(), files: [] };
+  for (const f of data.files) {
+    const parts = f.path.split("/");
+    let node = root;
+    for (const part of parts.slice(0, -1)) {
+      if (!node.children.has(part)) {
+        const path = node.path ? `${node.path}/${part}` : part;
+        node.children.set(part, { name: part, path, children: new Map(), files: [], parent: node });
+      }
+      node = node.children.get(part);
+    }
+    node.files.push(f);
+  }
+
+  let metric = "tokens";
+  let current = root;
+
+  const weight = (n) => n.file ? n.file[metric] :
+    [...n.children.values()].reduce((a, c) => a + weight(c), 0) +
+    n.files.reduce((a, f) => a + f[metric], 0);
+  const items = (n) => [
+    ...[...n.children.values()].map((d) => ({ dir: d, w: weight(d) })),
+    ...n.files.map((f) => ({ file: f, w: f[metric] })),
+  ].filter((x) => x.w > 0).sort((a, b) => b.w - a.w);
+
+  // Squarified treemap (Bruls, Huizing, van Wijk).
+  function squarify(list, x, y, w, h) {
+    const out = [];
+    const total = list.reduce((a, i) => a + i.w, 0);
+    if (!total) return out;
+    const scale = (w * h) / total;
+    let rest = list.map((i) => ({ ...i, a: i.w * scale }));
+    while (rest.length) {
+      const side = Math.min(w, h);
+      let row = [], best = Infinity;
+      for (const item of rest) {
+        const next = [...row, item];
+        const sum = next.reduce((a, i) => a + i.a, 0);
+        const max = Math.max(...next.map((i) => i.a)), min = Math.min(...next.map((i) => i.a));
+        const worst = Math.max((side * side * max) / (sum * sum), (sum * sum) / (side * side * min));
+        if (worst > best) break;
+        best = worst; row = next;
+      }
+      const sum = row.reduce((a, i) => a + i.a, 0);
+      const thick = sum / side;
+      let offset = 0;
+      for (const item of row) {
+        const len = item.a / thick;
+        out.push(w >= h
+          ? { ...item, x, y: y + offset, w: thick, h: len }
+          : { ...item, x: x + offset, y, w: len, h: thick });
+        offset += len;
+      }
+      if (w >= h) { x += thick; w -= thick; } else { y += thick; h -= thick; }
+      rest = rest.slice(row.length);
+    }
+    return out;
+  }
+
+  const map = $("map"), tip = $("tip");
+  const HEADER = 18, MIN_NEST = 48;
+
+  function draw(node, x, y, w, h, depth) {
+    for (const r of squarify(items(node), x, y, w, h)) {
+      const el = document.createElement("div");
+      el.className = r.dir ? "tile dir" : "tile";
+      Object.assign(el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+      if (r.file) {
+        el.style.background = r.file.warnings ? "var(--warn)" : "var(--ok)";
+        el.style.opacity = String(0.55 + 0.45 * Math.min(1, r.file[metric] / maxLeaf));
+        if (r.w > 40 && r.h > 16) el.textContent = r.file.path.split("/").pop();
+        el.onmousemove = (e) => showTip(e, fileTip(r.file));
+        el.onclick = () => {};
+      } else {
+        el.onmousemove = (e) => { if (e.target === el || e.target.className === "label") showTip(e, dirTip(r.dir, r.w)); };
+        el.onclick = (e) => { e.stopPropagation(); zoom(r.dir); };
+        if (r.w > 30 && r.h > HEADER) {
+          const label = document.createElement("div");
+          label.className = "label"; label.textContent = r.dir.name; el.appendChild(label);
+        }
+      }
+      el.onmouseleave = () => { tip.style.display = "none"; };
+      map.appendChild(el);
+      if (r.dir && r.w > MIN_NEST && r.h > MIN_NEST && depth < 6) {
+        draw(r.dir, r.x + 2, r.y + HEADER, r.w - 4, r.h - HEADER - 2, depth + 1);
+      }
+    }
+  }
+
+  let maxLeaf = 1;
+  function render() {
+    map.innerHTML = "";
+    maxLeaf = Math.max(1, ...data.files.map((f) => f[metric]));
+    const box = map.getBoundingClientRect();
+    draw(current, 0, 0, box.width, box.height, 0);
+    const chain = [];
+    for (let n = current; n; n = n.parent) chain.unshift(n);
+    $("crumbs").innerHTML = "";
+    for (const n of chain) {
+      const b = document.createElement("button");
+      b.textContent = n === root ? "root" : n.name;
+      b.onclick = () => zoom(n);
+      $("crumbs").appendChild(b);
+    }
+  }
+  function zoom(n) { current = n; tip.style.display = "none"; render(); }
+
+  function fileTip(f) {
+    const warn = f.warnings ? `<br><b>${f.warnings}</b> warning${f.warnings > 1 ? "s" : ""}` : "";
+    return `<b>${esc(f.path)}</b><br>${esc(f.language)} · ${fmt(f.tokens)} tokens · ${fmt(f.lines)} lines${warn}`;
+  }
+  function dirTip(d) {
+    return `<b>${esc(d.path)}/</b><br>${fmt(weight(d))} ${metric} · click to zoom`;
+  }
+  function showTip(e, html) {
+    tip.innerHTML = html; tip.style.display = "block";
+    const pad = 14, r = tip.getBoundingClientRect();
+    tip.style.left = `${Math.min(e.clientX + pad, innerWidth - r.width - 8)}px`;
+    tip.style.top = `${Math.min(e.clientY + pad, innerHeight - r.height - 8)}px`;
+  }
+
+  $("size").onchange = (e) => { metric = e.target.value; render(); };
+  addEventListener("resize", render);
+  render();
+
+  const rows = data.warnings.map((w) =>
+    `<tr><td class="path">${esc(w.path)}${w.line ? `:${w.line}` : ""}</td><td>${esc(w.kind)}</td><td>${esc(w.message)}</td></tr>`);
+  $("warnings-title").textContent = `Warnings (${data.warnings.length})`;
+  $("warnings").innerHTML = rows.length
+    ? `<tr><th>Location</th><th>Kind</th><th>Message</th></tr>${rows.join("")}`
+    : `<tr><td class="muted">No warnings.</td></tr>`;
+})();
+</script>
+</body>
+</html>
