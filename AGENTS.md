@@ -18,13 +18,15 @@ Guidance for AI coding agents working in this repository.
   (newtypes, input structs, `*Helpers` structs, flat orchestrators, one `mod.rs`-rooted directory per topic) is on you.
 - Suppress a lint only with `#[expect(lint, reason = "...")]`. `#[expect]` on a macro statement is ignored; put it on a function.
 - Stdout is written only by `cli/output.rs` (`CliOutput`). No `println!`/`eprintln!` anywhere else.
+  Exception: in `sarah mcp`, the `rmcp` stdio transport owns stdout.
 - Default branch is `master`.
 
 ## Checks
 
-- `sh scripts/check.sh` runs fmt, clippy (`-D warnings`), tests, cargo-audit and cargo-deny. Run it before finishing:
-  CI runs only inside the Release workflow, never on push or PR.
-- The pre-commit hook (cargo-husky, installed by the first `cargo test`) runs fmt + clippy.
+- `sh scripts/check.sh` runs fmt, clippy (`-D warnings`), tests, sarah on sarah (`--fail-on-warn`), cargo-audit and
+  cargo-deny. Run it before finishing. CI runs fmt, clippy, tests and sarah on push to `master`, on PRs and in Release;
+  audit and deny run only in Release.
+- The hooks (cargo-husky, installed by the first `cargo test`): pre-commit runs fmt + clippy, pre-push runs tests + sarah.
 
 ## Invariants
 

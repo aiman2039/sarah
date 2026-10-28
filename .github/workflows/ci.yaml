@@ -1,8 +1,16 @@
 name: CI
 
 on:
-  # Release is the only trigger; no PR, push, or branch runs.
+  push:
+    branches: [master]
+  pull_request:
+  # Release runs it too, on the exact revision being released.
   workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Release calls must finish; push and PR runs are superseded by newer commits.
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -49,3 +57,7 @@ jobs:
         run: sh scripts/check.sh clippy
       - name: Tests
         run: sh scripts/check.sh test
+      # Reuses the debug build from the tests; one OS is enough for a size check.
+      - name: Sarah on sarah
+        if: runner.os == 'Linux'
+        run: sh scripts/check.sh sarah

@@ -215,12 +215,17 @@ Outputs: `json` (report path), `tokens`, `warnings`.
 ## Development
 
 Hooks install on the first `cargo test` (cargo-husky). `pre-commit` runs
-`scripts/check.sh fmt` and `scripts/check.sh clippy`. Clippy runs pedantic plus the
+`scripts/check.sh fmt` and `scripts/check.sh clippy`; `pre-push` runs
+`scripts/check.sh test` and `scripts/check.sh sarah`. Clippy runs pedantic plus the
 safety lints in `[lints.clippy]` in `Cargo.toml`, with `-D warnings`.
 
 ```sh
-sh scripts/check.sh          # fmt + clippy + tests + cargo-audit + cargo-deny (same as CI)
+sh scripts/check.sh          # fmt + clippy + tests + sarah + cargo-audit + cargo-deny
+sh scripts/check.sh sarah    # sarah on its own code with --fail-on-warn
 ```
+
+CI (`.github/workflows/ci.yaml`) runs fmt, clippy and tests on macOS/Linux/Windows,
+and sarah on sarah on Linux, for every push to `master` and every pull request.
 
 ## Releasing
 
@@ -233,7 +238,7 @@ scripts/git-release.sh --check-only   # run every check, change nothing
 scripts/git-release.sh                # all of the above in one step: check, bump, commit, tag, push, release
 ```
 
-The Release workflow (`.github/workflows/release.yaml`) runs CI on macOS/Linux/Windows,
+The Release workflow (`.github/workflows/release.yaml`) runs CI and the security checks,
 builds all five targets in parallel, uploads them to a draft release with
-`SHA256SUMS.txt`, publishes it, then runs the action end to end against the new release.
-CI runs only as part of Release.
+`SHA256SUMS.txt`, publishes it, then runs the action end to end against the new release
+with `fail-on-warn`.

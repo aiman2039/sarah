@@ -58,7 +58,7 @@ validated="$(git write-tree)"
 SARAH_RELEASE_VALIDATED_TREE="$validated" git commit --quiet -m "Release $tag"
 revision="$(git rev-parse HEAD)"
 git tag "$tag" "$revision"
-git push --atomic origin "$revision:refs/heads/master" "refs/tags/$tag"
+SARAH_RELEASE_VALIDATED_TREE="$validated" git push --atomic origin "$revision:refs/heads/master" "refs/tags/$tag"
 
 gh workflow run release.yaml --ref master -f "tag=$tag" \
     || die "$tag was pushed, but workflow dispatch failed. Retry only: gh workflow run release.yaml --ref master -f tag=$tag"

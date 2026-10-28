@@ -13,6 +13,8 @@ case "${1:-all}" in
     fmt) cargo fmt --all --check ;;
     clippy) cargo clippy --all-targets --all-features --locked -- -D warnings ;;
     test) cargo test --all-features --locked ;;
+    # sarah on its own code: any warning over sarah.toml / the default limits fails.
+    sarah) cargo run --quiet --locked -- . --fail-on-warn --top 5 ;;
     audit)
         need_plugin audit
         cargo audit
@@ -22,9 +24,9 @@ case "${1:-all}" in
         cargo deny check advisories bans licenses sources
         ;;
     all)
-        for check in fmt clippy test audit deny; do
+        for check in fmt clippy test sarah audit deny; do
             sh "$0" "$check"
         done
         ;;
-    *) echo "Usage: $0 [all|fmt|clippy|test|audit|deny]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [all|fmt|clippy|test|sarah|audit|deny]" >&2; exit 2 ;;
 esac
