@@ -73,8 +73,8 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-  # Release is the only trigger for CI: no PR, push, or branch runs.
-  # The reusable workflows exercise the exact revision being released.
+  # CI also runs on push and PR; here it checks the exact revision being released.
+  # Security runs only from Release.
   checks:
     needs: prepare
     uses: ./.github/workflows/ci.yaml
@@ -235,6 +235,7 @@ jobs:
         uses: ./
         with:
           version: ${{ needs.prepare.outputs.tag }}
+          fail-on-warn: true
       - name: Check action outputs
         env:
           REPORT: ${{ steps.sarah.outputs.json }}
