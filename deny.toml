@@ -29,6 +29,7 @@ skip = [
     { crate = "winnow", reason = "0.7 via tokei/toml 0.9 vs 1.x elsewhere" },
     { crate = "syn", reason = "v3 via clap_derive vs v2 in other proc-macros" },
     { crate = "windows-sys", reason = "0.48 via tokei/etcetera, 0.59 via colored, 0.61 elsewhere" },
+    { crate = "getrandom", reason = "0.2 via tokei/tera/rand 0.8 vs 0.4 via rmcp/uuid" },
     { crate = "windows-targets", reason = "follows the windows-sys versions above" },
     { crate = "windows_x86_64_msvc", reason = "follows the windows-sys versions above" },
 ]
