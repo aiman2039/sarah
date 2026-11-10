@@ -27,23 +27,35 @@ impl CheckArgs {
             files,
             skipped,
         } = self.walk.scan(!self.no_functions)?;
-        let mut report = Report::build(self.report_input(files, skipped, config)?);
-        self.filter(&mut report)?;
+        let limits = self.limit_rules(&config)?;
+        let mut report = Report::build(self.report_input(files, skipped, &config)?);
+        self.filter(&mut report, &limits)?;
+        if let Some(rev) = &self.diff {
+            report.diff = Some(self.compute_diff(rev, &config, &report)?);
+        }
         Ok(report)
     }
 
-    fn report_input(
+    pub fn limit_rules(&self, config: &Config) -> Result<LimitRules> {
+        LimitRules::with_unused_allow(
+            &config.files,
+            config.unused_allow.unwrap_or(false),
+            self.limit_flags(),
+        )
+    }
+
+    pub(super) fn report_input(
         &self,
         files: Vec<FileStats>,
         skipped: Skipped,
-        config: Config,
+        config: &Config,
     ) -> Result<ReportInput> {
         Ok(ReportInput {
             files,
             skipped,
             sort: self.sort,
-            limits: LimitRules::new(&config.files, self.limit_flags())?,
-            folders: FolderRules::new(config.preset, config.folder)?,
+            limits: self.limit_rules(config)?,
+            folders: FolderRules::new(config.preset, config.folder.clone())?,
             tokenizer: self.walk.tokenizer.to_string(),
         })
     }
@@ -52,19 +64,24 @@ impl CheckArgs {
         LimitPatch {
             max_file_tokens: self.max_file_tokens,
             max_file_lines: self.max_file_lines,
+            max_file_fns: self.max_file_fns,
             max_fn_lines: self.max_fn_lines,
             max_fn_tokens: self.max_fn_tokens,
             max_fn_depth: self.max_fn_depth,
             max_fn_params: self.max_fn_params,
+            max_fn_bool_params: self.max_fn_bool_params,
             max_fn_cyclomatic: self.max_fn_cyclomatic,
             max_fn_cognitive: self.max_fn_cognitive,
+            max_type_fields: self.max_type_fields,
+            max_type_methods: self.max_type_methods,
+            unused_allow: self.unused_allow.then_some(true),
         }
     }
 
     /// Apply `sarah-allow` comments (unless `--no-allow`), `--baseline`, then `--changed-since`.
-    fn filter(&self, report: &mut Report) -> Result<()> {
+    fn filter(&self, report: &mut Report, limits: &LimitRules) -> Result<()> {
         if !self.no_allow {
-            report.apply_allows();
+            report.apply_allows(limits);
         }
         if let Some(path) = &self.baseline {
             report.apply_baseline(&Baseline::load(path)?);

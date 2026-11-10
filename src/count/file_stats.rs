@@ -6,11 +6,11 @@ use tokei::{Config, LanguageType};
 use super::generated::GeneratedHelpers;
 use super::tokenizer::Tokenizer;
 use crate::allow::Allows;
-use crate::functions::FnStats;
+use crate::functions::{AstStats, FnStats, ImportRef, TypeStats};
 use crate::units::{Bytes, Lines, Tokens};
 use crate::walk::FileEntry;
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct FileStats {
     pub path: PathBuf,
     pub language: String,
@@ -23,7 +23,11 @@ pub struct FileStats {
     /// `None` when function extraction isn't supported for this language or was disabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub functions: Option<Vec<FnStats>>,
-    /// File-wide `sarah-allow-file` kinds and malformed directives.
+    #[serde(skip)]
+    pub types: Vec<TypeStats>,
+    #[serde(skip)]
+    pub imports: Vec<ImportRef>,
+    /// File-wide `sarah-allow-file` kinds, tracked directives and malformed directives.
     #[serde(skip)]
     pub allows: Allows,
 }
@@ -33,6 +37,14 @@ pub struct AnalyzeInput {
     pub tokenizer: Tokenizer,
     pub with_functions: bool,
     /// Leave out files with a generated-code header.
+    pub skip_generated: bool,
+}
+
+pub struct SourceInput<'a> {
+    pub path: PathBuf,
+    pub text: &'a str,
+    pub tokenizer: Tokenizer,
+    pub with_functions: bool,
     pub skip_generated: bool,
 }
 
@@ -56,19 +68,40 @@ impl FileStats {
         let Ok(text) = std::fs::read_to_string(&real) else {
             return Analysis::NotText;
         };
-        if skip_generated && GeneratedHelpers::is_generated(&text) {
+        Self::analyze_source(SourceInput {
+            path: display,
+            text: &text,
+            tokenizer,
+            with_functions,
+            skip_generated,
+        })
+    }
+
+    pub fn analyze_source(input: SourceInput<'_>) -> Analysis {
+        let SourceInput {
+            path,
+            text,
+            tokenizer,
+            with_functions,
+            skip_generated,
+        } = input;
+        if skip_generated && GeneratedHelpers::is_generated(text) {
             return Analysis::Generated;
         }
-        let lang = LanguageType::from_path(&real, &Config::default());
+        let lang = LanguageType::from_path(&path, &Config::default());
         let LineBreakdown {
             code,
             comments,
             blanks,
-        } = LineBreakdown::of(lang, &text);
-        let mut functions = with_functions
-            .then(|| FnStats::extract(&real, &text, tokenizer))
+        } = LineBreakdown::of(lang, text);
+        let mut ast = with_functions
+            .then(|| AstStats::extract(&path, text, tokenizer))
             .flatten();
-        let allows = Allows::scan(&text, functions.as_deref_mut());
+        let allows = Allows::scan(text, ast.as_mut());
+        let (functions, types, imports) = match ast {
+            Some(ast) => (Some(ast.functions), ast.types, ast.imports),
+            None => (None, Vec::new(), Vec::new()),
+        };
         Analysis::Counted(Box::new(Self {
             language: lang.map_or("Other".to_string(), |l| l.name().to_string()),
             bytes: Bytes(text.len()),
@@ -76,10 +109,12 @@ impl FileStats {
             code,
             comments,
             blanks,
-            tokens: tokenizer.count(&text),
+            tokens: tokenizer.count(text),
             functions,
+            types,
+            imports,
             allows,
-            path: display,
+            path,
         }))
     }
 }

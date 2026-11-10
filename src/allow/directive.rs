@@ -24,10 +24,11 @@ pub struct Directive {
     pub line: LineNo,
     pub scope: Scope,
     pub kinds: Vec<WarningKind>,
+    pub explicit: bool,
 }
 
 /// A malformed or misplaced directive, reported as a `bad_allow` warning.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AllowProblem {
     pub line: LineNo,
     pub message: String,
@@ -41,14 +42,20 @@ impl Scope {
                 WarningKind::LargeFunction,
                 WarningKind::DeepFunction,
                 WarningKind::TooManyParams,
+                WarningKind::TooManyBoolParams,
                 WarningKind::ComplexFunction,
+                WarningKind::LargeType,
             ],
             Self::File => &[
                 WarningKind::LargeFile,
+                WarningKind::TooManyFunctions,
                 WarningKind::LargeFunction,
                 WarningKind::DeepFunction,
                 WarningKind::TooManyParams,
+                WarningKind::TooManyBoolParams,
                 WarningKind::ComplexFunction,
+                WarningKind::LargeType,
+                WarningKind::ForbiddenImport,
             ],
         }
     }
@@ -75,13 +82,18 @@ impl DirectiveHelpers {
         let problem = |message: String| AllowProblem { line, message };
         Some(
             Self::parse_body(scope, rest)
-                .map(|kinds| Directive { line, scope, kinds })
+                .map(|(kinds, explicit)| Directive {
+                    line,
+                    scope,
+                    kinds,
+                    explicit,
+                })
                 .map_err(problem),
         )
     }
 
     /// `(kinds): reason`, `: reason`; the reason may be empty but the `:` is required.
-    fn parse_body(scope: Scope, rest: &str) -> Result<Vec<WarningKind>, String> {
+    fn parse_body(scope: Scope, rest: &str) -> Result<(Vec<WarningKind>, bool), String> {
         let (list, rest) = match rest.trim_start().strip_prefix('(') {
             Some(inner) => {
                 let (list, after) = inner
@@ -99,7 +111,7 @@ impl DirectiveHelpers {
         Self::parse_kinds(scope, list)
     }
 
-    fn parse_kinds(scope: Scope, list: Option<&str>) -> Result<Vec<WarningKind>, String> {
+    fn parse_kinds(scope: Scope, list: Option<&str>) -> Result<(Vec<WarningKind>, bool), String> {
         let names: Vec<&str> = list
             .unwrap_or_default()
             .split(',')
@@ -107,12 +119,13 @@ impl DirectiveHelpers {
             .filter(|name| !name.is_empty())
             .collect();
         if names.is_empty() {
-            return Ok(scope.allowed_kinds().to_vec());
+            return Ok((scope.allowed_kinds().to_vec(), false));
         }
-        names
+        let kinds = names
             .into_iter()
             .map(|name| Self::parse_kind(scope, name))
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((kinds, true))
     }
 
     fn parse_kind(scope: Scope, name: &str) -> Result<WarningKind, String> {
@@ -148,6 +161,7 @@ mod tests {
             .unwrap();
         assert_eq!(d.line, LineNo(3));
         assert_eq!(d.scope, Scope::Function);
+        assert!(d.explicit);
         assert_eq!(
             d.kinds,
             vec![WarningKind::LargeFunction, WarningKind::DeepFunction]

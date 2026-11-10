@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use super::model::{Report, Warning, WarningKind};
+use super::model::Report;
+use super::warning::{Warning, WarningKind};
 use crate::structure::DirStats;
-use crate::units::{Cognitive, Cyclomatic, Depth, Lines, Params, Tokens};
+use crate::units::{Cognitive, Cyclomatic, Depth, LineNo, Lines, Params, Tokens};
 
 /// A JSON report from an earlier run. Its warnings are hidden unless the measured
 /// sizes grew since.
@@ -17,10 +18,9 @@ pub struct Baseline {
 
 type Key = (PathBuf, WarningKind, Option<String>);
 
-/// Lines, tokens, depth, parameters, cyclomatic and cognitive complexity of a function.
-type FnSizes = [usize; 6];
+/// Lines, tokens, depth, params, bool_params, cyclomatic and cognitive complexity.
+type FnSizes = [usize; 7];
 
-/// The fields of a saved JSON report that the baseline needs.
 #[derive(Deserialize)]
 struct SavedReport {
     files: Vec<SavedFile>,
@@ -41,12 +41,16 @@ struct SavedFile {
 struct SavedFn {
     path: PathBuf,
     name: String,
+    #[serde(default)]
+    start_line: Option<LineNo>,
     lines: Lines,
     tokens: Tokens,
     #[serde(default)]
     depth: Depth,
     #[serde(default)]
     params: Option<Params>,
+    #[serde(default)]
+    bool_params: Option<Params>,
     #[serde(default)]
     cyclomatic: Cyclomatic,
     #[serde(default)]
@@ -66,7 +70,9 @@ struct SavedWarning {
 struct Sizes {
     files: HashMap<PathBuf, [usize; 3]>,
     functions: HashMap<(PathBuf, String), FnSizes>,
-    dirs: HashMap<PathBuf, [usize; 3]>,
+    dirs: HashMap<PathBuf, [usize; 4]>,
+    dir_max_depth: HashMap<PathBuf, usize>,
+    dir_inv_entries: HashMap<PathBuf, usize>,
 }
 
 impl Baseline {
@@ -86,20 +92,16 @@ impl Baseline {
             warnings,
         } = saved;
         let mut sizes = Sizes::default();
+        let mut fn_counts: HashMap<PathBuf, usize> = HashMap::new();
+        for f in &functions {
+            let count = fn_counts.entry(f.path.clone()).or_insert(0);
+            *count = count.saturating_add(1);
+        }
         for f in files {
-            sizes.files.insert(f.path, [f.tokens.0, f.lines.0, 0]);
+            let fns = fn_counts.get(&f.path).copied().unwrap_or(0);
+            sizes.files.insert(f.path, [f.tokens.0, f.lines.0, fns]);
         }
-        for f in functions {
-            let fn_sizes = [
-                f.lines.0,
-                f.tokens.0,
-                f.depth.0,
-                f.params.map_or(0, |p| p.0),
-                f.cyclomatic.0,
-                f.cognitive.0,
-            ];
-            sizes.add_function((f.path, f.name), fn_sizes);
-        }
+        sizes.add_saved_fns(functions);
         sizes.add_dirs(&directories);
         let known = warnings
             .into_iter()
@@ -124,9 +126,10 @@ impl Sizes {
     fn of_report(report: &Report) -> Self {
         let mut sizes = Self::default();
         for f in &report.files {
+            let fns = f.functions.as_ref().map_or(0, Vec::len);
             sizes
                 .files
-                .insert(f.path.clone(), [f.tokens.0, f.lines.0, 0]);
+                .insert(f.path.clone(), [f.tokens.0, f.lines.0, fns]);
         }
         for f in &report.functions {
             let fn_sizes = [
@@ -134,17 +137,49 @@ impl Sizes {
                 f.tokens.0,
                 f.depth.0,
                 f.params.map_or(0, |p| p.0),
+                f.bool_params.map_or(0, |p| p.0),
                 f.cyclomatic.0,
                 f.cognitive.0,
             ];
-            sizes.add_function((f.path.clone(), f.name.clone()), fn_sizes);
+            sizes
+                .functions
+                .insert((f.path.clone(), f.subject_key.clone()), fn_sizes);
+            sizes.add_max_fn((f.path.clone(), f.name.clone()), fn_sizes);
         }
         sizes.add_dirs(&report.directories);
         sizes
     }
 
-    /// Same-named functions in one file (overloads) keep the largest sizes.
-    fn add_function(&mut self, key: (PathBuf, String), sizes: FnSizes) {
+    fn add_saved_fns(&mut self, mut functions: Vec<SavedFn>) {
+        functions.sort_by_key(|f| (f.path.clone(), f.start_line.unwrap_or(LineNo(0))));
+        let mut totals: HashMap<(PathBuf, String), usize> = HashMap::new();
+        for f in &functions {
+            let count = totals.entry((f.path.clone(), f.name.clone())).or_insert(0);
+            *count = count.saturating_add(1);
+        }
+        let mut seen: HashMap<(PathBuf, String), usize> = HashMap::new();
+        for f in functions {
+            let fn_sizes = [
+                f.lines.0,
+                f.tokens.0,
+                f.depth.0,
+                f.params.map_or(0, |p| p.0),
+                f.bool_params.map_or(0, |p| p.0),
+                f.cyclomatic.0,
+                f.cognitive.0,
+            ];
+            let pair = (f.path.clone(), f.name.clone());
+            let ord = seen.entry(pair.clone()).or_insert(0);
+            *ord = ord.saturating_add(1);
+            if totals.get(&pair).copied().unwrap_or(0) > 1 {
+                let disambig = format!("{}#{ord}", f.name);
+                self.functions.insert((f.path, disambig), fn_sizes);
+            }
+            self.add_max_fn(pair, fn_sizes);
+        }
+    }
+
+    fn add_max_fn(&mut self, key: (PathBuf, String), sizes: FnSizes) {
         let entry = self.functions.entry(key).or_default();
         for (e, s) in entry.iter_mut().zip(sizes) {
             *e = (*e).max(s);
@@ -154,33 +189,50 @@ impl Sizes {
     fn add_dirs(&mut self, dirs: &[DirStats]) {
         for d in dirs {
             self.dirs
-                .insert(d.path.clone(), [d.files, d.dirs, d.tokens.0]);
+                .insert(d.path.clone(), [d.files, d.dirs, d.lines.0, d.tokens.0]);
+            let entries = d.files.saturating_add(d.dirs);
+            self.dir_inv_entries
+                .insert(d.path.clone(), usize::MAX.saturating_sub(entries));
+            let max_depth = dirs
+                .iter()
+                .filter(|other| d.path == Path::new(".") || other.path.starts_with(&d.path))
+                .map(|other| other.depth.0)
+                .max()
+                .unwrap_or(d.depth.0);
+            self.dir_max_depth.insert(d.path.clone(), max_depth);
         }
     }
 
-    /// `None` for name-based warnings, which have no size.
     fn of(&self, w: &Warning) -> Option<Vec<usize>> {
         match w.kind {
-            WarningKind::LargeFile => self.files.get(&w.path).map(|s| s.to_vec()),
+            WarningKind::LargeFile | WarningKind::TooManyFunctions => {
+                self.files.get(&w.path).map(|s| s.to_vec())
+            }
             WarningKind::LargeFunction
             | WarningKind::DeepFunction
             | WarningKind::TooManyParams
+            | WarningKind::TooManyBoolParams
             | WarningKind::ComplexFunction => {
                 let name = w.subject.clone()?;
-                let sizes = self.functions.get(&(w.path.clone(), name))?;
-                Some(sizes.to_vec())
+                self.functions
+                    .get(&(w.path.clone(), name))
+                    .map(|s| s.to_vec())
             }
             WarningKind::FolderTooManyFiles
             | WarningKind::FolderTooManyDirs
+            | WarningKind::FolderTooManyLines
             | WarningKind::FolderTooManyTokens => self.dirs.get(&w.path).map(|s| s.to_vec()),
-            WarningKind::FolderTooDeep
-            | WarningKind::FolderTooFewEntries
+            WarningKind::FolderTooDeep => self.dir_max_depth.get(&w.path).map(|d| vec![*d]),
+            WarningKind::FolderTooFewEntries => self.dir_inv_entries.get(&w.path).map(|e| vec![*e]),
+            WarningKind::LargeType
+            | WarningKind::ForbiddenImport
             | WarningKind::FolderMissingRequired
             | WarningKind::FolderForbiddenName
             | WarningKind::FolderBadName
             | WarningKind::FolderSiblingModule
             | WarningKind::FolderUnexpectedDir
-            | WarningKind::BadAllow => None,
+            | WarningKind::BadAllow
+            | WarningKind::UnusedAllow => None,
         }
     }
 }
@@ -212,21 +264,39 @@ mod tests {
     }
 
     #[test]
-    fn known_warnings_hide_until_they_grow() {
+    fn known_warnings_hide_until_they_grow_including_duplicate_names() {
         let baseline = saved(
             r#"{"files":[{"path":"a.rs","tokens":100,"lines":10}],
-                "functions":[{"path":"a.rs","name":"f","lines":50,"tokens":9}],
-                "warnings":[{"path":"a.rs","kind":"large_file","message":""},
-                            {"path":"a.rs","kind":"large_function","subject":"f","message":""}]}"#,
+                "functions":[
+                  {"path":"a.rs","name":"new","start_line":1,"lines":80,"tokens":50},
+                  {"path":"a.rs","name":"new","start_line":90,"lines":20,"tokens":15}
+                ],
+                "directories":[{"path":"src/a","depth":3,"files":1,"dirs":1,"total_files":2,"lines":10,"tokens":20}],
+                "warnings":[
+                  {"path":"a.rs","kind":"large_function","subject":"new#1","message":""},
+                  {"path":"a.rs","kind":"large_function","subject":"new#2","message":""},
+                  {"path":"src/a","kind":"folder_too_deep","message":""}
+                ]}"#,
         );
         let mut current = Sizes::default();
-        current.files.insert("a.rs".into(), [100, 10, 0]);
+        current.files.insert("a.rs".into(), [100, 10, 2]);
         current
             .functions
-            .insert(("a.rs".into(), "f".into()), [51, 9, 0, 0, 1, 0]);
+            .insert(("a.rs".into(), "new#1".into()), [80, 50, 0, 0, 0, 0, 0]);
+        current
+            .functions
+            .insert(("a.rs".into(), "new#2".into()), [25, 15, 0, 0, 0, 0, 0]);
+        current.dir_max_depth.insert("src/a".into(), 4);
 
-        assert!(baseline.covers(&warning(WarningKind::LargeFile, None), &current));
-        assert!(!baseline.covers(&warning(WarningKind::LargeFunction, Some("f")), &current));
-        assert!(!baseline.covers(&warning(WarningKind::LargeFunction, Some("g")), &current));
+        assert!(baseline.covers(
+            &warning(WarningKind::LargeFunction, Some("new#1")),
+            &current
+        ));
+        assert!(!baseline.covers(
+            &warning(WarningKind::LargeFunction, Some("new#2")),
+            &current
+        ));
+        let deep = Warning::new("src/a".into(), WarningKind::FolderTooDeep, String::new());
+        assert!(!baseline.covers(&deep, &current));
     }
 }

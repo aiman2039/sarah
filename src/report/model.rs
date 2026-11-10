@@ -1,15 +1,17 @@
 use std::cmp::Reverse;
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
-use derive_more::Display;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
+use super::diff::DiffSummary;
+use super::warning::{Warning, WarningKind};
 use crate::config::LimitRules;
 use crate::count::FileStats;
+use crate::functions::FnStats;
 use crate::structure::{DirStats, DirTree, FolderRules};
-use crate::units::{Bytes, Cognitive, Cyclomatic, Depth, LineNo, Lines, Params, Tokens};
+use crate::units::{Bytes, Cognitive, Cyclomatic, Depth, LineNo, LineSpan, Lines, Params, Tokens};
 use crate::walk::Skipped;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -89,111 +91,72 @@ pub struct TopFn {
     pub depth: Depth,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<Params>,
+    #[serde(skip_serializing_if = "FnStats::skip_bool_params")]
+    pub bool_params: Option<Params>,
     pub cyclomatic: Cyclomatic,
     pub cognitive: Cognitive,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allow: Vec<WarningKind>,
+    #[serde(skip)]
+    pub deepest_block: Option<LineSpan>,
+    #[serde(skip)]
+    pub largest_block: Option<LineSpan>,
+    /// `name` when unique in `path`, else `name#1`, `name#2`, ... in line order.
+    #[serde(skip)]
+    pub subject_key: String,
 }
 
 impl TopFn {
     /// Every function across `files`, largest (lines, then tokens) first.
     fn ranked(files: &[FileStats]) -> Vec<Self> {
-        let mut functions: Vec<Self> = files
-            .iter()
-            .flat_map(|f| {
-                f.functions
-                    .as_deref()
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|func| Self {
-                        path: f.path.clone(),
-                        name: func.name.clone(),
-                        kind: func.kind.clone(),
-                        start_line: func.start_line,
-                        end_line: func.end_line,
-                        lines: func.lines,
-                        tokens: func.tokens,
-                        depth: func.depth,
-                        params: func.params,
-                        cyclomatic: func.cyclomatic,
-                        cognitive: func.cognitive,
-                        allow: func.allow.clone(),
-                    })
-            })
-            .collect();
+        let mut functions: Vec<Self> = files.iter().flat_map(Self::of_file).collect();
         functions.sort_by_key(|x| Reverse((x.lines, x.tokens)));
         functions
     }
-}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Display, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[display(rename_all = "snake_case")]
-pub enum WarningKind {
-    LargeFile,
-    LargeFunction,
-    DeepFunction,
-    /// More parameters than `max_fn_params`.
-    TooManyParams,
-    /// Over `max_fn_cyclomatic` or `max_fn_cognitive`.
-    ComplexFunction,
-    FolderTooManyFiles,
-    FolderTooManyDirs,
-    FolderTooDeep,
-    FolderTooManyTokens,
-    FolderTooFewEntries,
-    FolderMissingRequired,
-    FolderForbiddenName,
-    FolderBadName,
-    FolderSiblingModule,
-    FolderUnexpectedDir,
-    /// A malformed or misplaced `sarah-allow` comment.
-    BadAllow,
-}
-
-impl WarningKind {
-    /// Folder-structure warnings (as opposed to file and function warnings).
-    pub fn is_folder(self) -> bool {
-        self.to_string().starts_with("folder_")
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct Warning {
-    pub path: PathBuf,
-    pub kind: WarningKind,
-    pub message: String,
-    /// First line of the offending function, when there is one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<LineNo>,
-    /// What the warning is about inside `path` (a function name, a required glob);
-    /// with `path` and `kind` it identifies the warning across runs (`--baseline`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subject: Option<String>,
-}
-
-impl Warning {
-    pub fn new(path: PathBuf, kind: WarningKind, message: String) -> Self {
-        Self {
-            path,
-            kind,
-            message,
-            line: None,
-            subject: None,
+    fn of_file(file: &FileStats) -> Vec<Self> {
+        let slice = file.functions.as_deref().unwrap_or_default();
+        let mut sorted: Vec<&FnStats> = slice.iter().collect();
+        sorted.sort_by_key(|f| f.start_line);
+        let mut totals: HashMap<&str, usize> = HashMap::new();
+        for func in &sorted {
+            let entry = totals.entry(func.name.as_str()).or_insert(0);
+            *entry = entry.saturating_add(1);
         }
+        let mut seen: HashMap<&str, usize> = HashMap::new();
+        sorted
+            .into_iter()
+            .map(|func| {
+                let ord = seen.entry(func.name.as_str()).or_insert(0);
+                *ord = ord.saturating_add(1);
+                let subject_key = if totals.get(func.name.as_str()).copied().unwrap_or(0) > 1 {
+                    format!("{}#{ord}", func.name)
+                } else {
+                    func.name.clone()
+                };
+                Self::from_stats(&file.path, func, subject_key)
+            })
+            .collect()
     }
 
-    pub fn at_line(self, line: LineNo) -> Self {
+    fn from_stats(path: &Path, func: &FnStats, subject_key: String) -> Self {
         Self {
-            line: Some(line),
-            ..self
-        }
-    }
-
-    pub fn about(self, subject: String) -> Self {
-        Self {
-            subject: Some(subject),
-            ..self
+            path: path.to_path_buf(),
+            name: func.name.clone(),
+            kind: func.kind.clone(),
+            start_line: func.start_line,
+            end_line: func.end_line,
+            lines: func.lines,
+            tokens: func.tokens,
+            depth: func.depth,
+            params: func.params,
+            bool_params: func.bool_params,
+            cyclomatic: func.cyclomatic,
+            cognitive: func.cognitive,
+            allow: func.allow.clone(),
+            deepest_block: func.deepest_block,
+            largest_block: func.largest_block,
+            subject_key,
         }
     }
 }
@@ -202,6 +165,8 @@ impl Warning {
 pub struct Report {
     pub tokenizer: String,
     pub totals: Totals,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff: Option<DiffSummary>,
     pub by_language: BTreeMap<String, Totals>,
     pub files: Vec<FileStats>,
     /// All functions across the repo, largest (by lines) first.
@@ -235,6 +200,8 @@ impl Report {
         let tree = DirTree::build(&files);
         let warnings = [
             Warning::for_files(&files, &limits),
+            Warning::for_types(&files, &limits),
+            Warning::for_imports(&files, &limits, &folders),
             Warning::for_functions(&functions, &limits),
             folders.check(&tree),
             Warning::for_allow_problems(&files),
@@ -245,6 +212,7 @@ impl Report {
         Self {
             tokenizer,
             totals,
+            diff: None,
             by_language,
             files,
             functions,
@@ -262,102 +230,5 @@ impl Report {
 
     pub fn to_json(&self) -> serde_json::Result<String> {
         serde_json::to_string_pretty(self)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::allow::Allows;
-    use crate::config::LimitPatch;
-    use crate::functions::FnStats;
-
-    struct Fixture {
-        path: &'static str,
-        lines: Lines,
-        tokens: Tokens,
-        fn_lines: Lines,
-    }
-
-    fn file(fixture: Fixture) -> FileStats {
-        let Fixture {
-            path,
-            lines,
-            tokens,
-            fn_lines,
-        } = fixture;
-        FileStats {
-            path: path.into(),
-            language: "Rust".into(),
-            bytes: Bytes(0),
-            lines,
-            code: lines,
-            comments: Lines(0),
-            blanks: Lines(0),
-            tokens,
-            functions: Some(vec![FnStats {
-                name: "big".into(),
-                kind: "function".into(),
-                start_line: LineNo(1),
-                end_line: LineNo(fn_lines.0),
-                lines: fn_lines,
-                tokens: Tokens(10),
-                depth: Depth(0),
-                params: None,
-                cyclomatic: Cyclomatic(1),
-                cognitive: Cognitive(0),
-                allow: Vec::new(),
-            }]),
-            allows: Allows::default(),
-        }
-    }
-
-    #[test]
-    fn thresholds_fire() {
-        let r = Report::build(ReportInput {
-            files: vec![
-                file(Fixture {
-                    path: "ok.rs",
-                    lines: Lines(10),
-                    tokens: Tokens(10),
-                    fn_lines: Lines(5),
-                }),
-                file(Fixture {
-                    path: "big.rs",
-                    lines: Lines(60),
-                    tokens: Tokens(200),
-                    fn_lines: Lines(30),
-                }),
-            ],
-            skipped: Skipped::default(),
-            sort: SortBy::Tokens,
-            limits: LimitRules::new(
-                &[],
-                LimitPatch {
-                    max_file_tokens: Some(Tokens(100)),
-                    max_file_lines: Some(Lines(50)),
-                    max_fn_lines: Some(Lines(20)),
-                    ..LimitPatch::default()
-                },
-            )
-            .unwrap(),
-            folders: FolderRules::new(None, Vec::new()).unwrap(),
-            tokenizer: "o200k".into(),
-        });
-        assert_eq!(r.totals.files, 2);
-        assert_eq!(r.totals.tokens, Tokens(210));
-        assert_eq!(r.files[0].path, PathBuf::from("big.rs"));
-        let kinds: Vec<_> = r
-            .warnings
-            .iter()
-            .map(|w| (w.path.clone(), w.kind))
-            .collect();
-        assert_eq!(
-            kinds,
-            vec![
-                ("big.rs".into(), WarningKind::LargeFile),
-                ("big.rs".into(), WarningKind::LargeFunction)
-            ]
-        );
     }
 }

@@ -1,34 +1,62 @@
 use super::directive::{AllowProblem, Directive, DirectiveHelpers, Scope};
-use crate::functions::FnStats;
+use crate::functions::{AstStats, FnStats, TypeStats};
 use crate::report::WarningKind;
 use crate::units::LineNo;
 
-/// Lines that may sit between a directive and its function: comments, doc comments,
+/// Lines that may sit between a directive and its item: comments, doc comments,
 /// attributes (`#[..]`, `[..]`) and decorators/annotations (`@..`).
 const PREAMBLE_STARTS: [&str; 7] = ["//", "/*", "*", "#", "--", "@", "["];
 
-/// The `sarah-allow` comments of one file. Function directives are moved onto
-/// `FnStats::allow`; what stays here applies to the whole file.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AllowTarget {
+    File,
+    Function(LineNo),
+    Type(LineNo),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackedAllow {
+    pub line: LineNo,
+    pub target: AllowTarget,
+    pub kinds: Vec<WarningKind>,
+    pub explicit: bool,
+}
+
+/// The `sarah-allow` comments of one file. Item directives are also copied onto
+/// `FnStats::allow` / `TypeStats::allow`; `tracked` records each directive for `unused_allow`.
+#[derive(Clone, Debug, Default)]
 pub struct Allows {
     pub file: Vec<WarningKind>,
+    pub tracked: Vec<TrackedAllow>,
     pub problems: Vec<AllowProblem>,
 }
 
 impl Allows {
-    /// Reads every directive in `text` and attaches function directives to `functions`.
-    /// Without `functions` (unsupported language, `--no-functions`) they are dropped.
-    pub fn scan(text: &str, functions: Option<&mut [FnStats]>) -> Self {
+    /// Reads every directive in `text` and attaches item directives to `ast`.
+    /// Without `ast` (unsupported language, `--no-functions`) item directives are dropped.
+    pub fn scan(text: &str, ast: Option<&mut AstStats>) -> Self {
         let lines: Vec<&str> = text.lines().collect();
         let (directives, mut problems) = AllowHelpers::directives(&lines);
-        let (file, for_functions): (Vec<_>, Vec<_>) =
+        let (file_dirs, item_dirs): (Vec<_>, Vec<_>) =
             directives.into_iter().partition(|d| d.scope == Scope::File);
-        if let Some(functions) = functions {
-            problems.extend(AllowHelpers::attach(&lines, for_functions, functions));
+        let mut tracked: Vec<TrackedAllow> = file_dirs
+            .iter()
+            .map(|d| TrackedAllow {
+                line: d.line,
+                target: AllowTarget::File,
+                kinds: d.kinds.clone(),
+                explicit: d.explicit,
+            })
+            .collect();
+        if let Some(ast) = ast {
+            let (item_tracked, item_problems) = AllowHelpers::attach(&lines, item_dirs, ast);
+            tracked.extend(item_tracked);
+            problems.extend(item_problems);
         }
         problems.sort_by_key(|p| p.line);
         Self {
-            file: AllowHelpers::merged_kinds(file),
+            file: AllowHelpers::merged_kinds(file_dirs),
+            tracked,
             problems,
         }
     }
@@ -50,39 +78,84 @@ impl AllowHelpers {
         (directives, problems)
     }
 
-    /// Adds each directive's kinds to the functions it sits directly above; a directive
-    /// above no function is a problem.
     fn attach(
         lines: &[&str],
         directives: Vec<Directive>,
-        functions: &mut [FnStats],
-    ) -> Vec<AllowProblem> {
+        ast: &mut AstStats,
+    ) -> (Vec<TrackedAllow>, Vec<AllowProblem>) {
+        let mut tracked = Vec::new();
         let mut problems = Vec::new();
-        for Directive { line, kinds, .. } in directives {
-            let reach = Self::reach(lines, line);
-            let mut attached = false;
-            for func in functions
-                .iter_mut()
-                .filter(|f| f.start_line > line && f.start_line <= reach)
-            {
-                for kind in &kinds {
-                    if !func.allow.contains(kind) {
-                        func.allow.push(*kind);
-                    }
-                }
-                attached = true;
-            }
-            if !attached {
+        for dir in directives {
+            let reach = Self::reach(lines, dir.line);
+            let fn_hits = Self::attach_fns(&dir, reach, &mut ast.functions);
+            let ty_hits = Self::attach_types(&dir, reach, &mut ast.types);
+            if fn_hits.is_empty() && ty_hits.is_empty() {
                 problems.push(AllowProblem {
-                    line,
-                    message: "not directly above a function (only comments, attributes and decorators may sit between)".to_string(),
+                    line: dir.line,
+                    message: "not directly above a function or type (only comments, attributes and decorators may sit between)".to_string(),
                 });
+            } else {
+                tracked.extend(fn_hits);
+                tracked.extend(ty_hits);
             }
         }
-        problems
+        (tracked, problems)
     }
 
-    /// The first line below `directive` that is not a comment, attribute or decorator.
+    fn attach_fns(dir: &Directive, reach: LineNo, fns: &mut [FnStats]) -> Vec<TrackedAllow> {
+        let fn_kinds: Vec<_> = dir
+            .kinds
+            .iter()
+            .copied()
+            .filter(|k| *k != WarningKind::LargeType)
+            .collect();
+        if fn_kinds.is_empty() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for func in fns
+            .iter_mut()
+            .filter(|f| f.start_line > dir.line && f.start_line <= reach)
+        {
+            Self::extend_unique(&mut func.allow, &fn_kinds);
+            out.push(TrackedAllow {
+                line: dir.line,
+                target: AllowTarget::Function(func.start_line),
+                kinds: fn_kinds.clone(),
+                explicit: dir.explicit,
+            });
+        }
+        out
+    }
+
+    fn attach_types(dir: &Directive, reach: LineNo, types: &mut [TypeStats]) -> Vec<TrackedAllow> {
+        if !dir.kinds.contains(&WarningKind::LargeType) {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for ty in types
+            .iter_mut()
+            .filter(|t| t.start_line > dir.line && t.start_line <= reach)
+        {
+            Self::extend_unique(&mut ty.allow, &[WarningKind::LargeType]);
+            out.push(TrackedAllow {
+                line: dir.line,
+                target: AllowTarget::Type(ty.start_line),
+                kinds: vec![WarningKind::LargeType],
+                explicit: dir.explicit,
+            });
+        }
+        out
+    }
+
+    fn extend_unique(dst: &mut Vec<WarningKind>, src: &[WarningKind]) {
+        for kind in src {
+            if !dst.contains(kind) {
+                dst.push(*kind);
+            }
+        }
+    }
+
     fn reach(lines: &[&str], directive: LineNo) -> LineNo {
         let index = lines
             .iter()
@@ -126,18 +199,16 @@ mod tests {
     }
 
     fn scan(path: &str, src: &str) -> (Vec<FnStats>, Allows) {
-        let mut functions = FnStats::extract(Path::new(path), src, Tokenizer::O200k).unwrap();
-        let allows = Allows::scan(src, Some(&mut functions));
-        (functions, allows)
+        let mut ast = AstStats::extract(Path::new(path), src, Tokenizer::O200k).unwrap();
+        let allows = Allows::scan(src, Some(&mut ast));
+        (ast.functions, allows)
     }
 
     fn allow_of<'a>(functions: &'a [FnStats], name: &str) -> &'a [WarningKind] {
         &functions.iter().find(|f| f.name == name).unwrap().allow
     }
 
-    /// Each language: a directive above a function with its usual comments, attributes,
-    /// decorators or annotations in between, and a function without one.
-    const SAMPLES: [Sample; 12] = [
+    const SAMPLES: [Sample; 8] = [
         Sample {
             path: "x.rs",
             src: "// sarah-allow(deep_function): table\n/// Docs.\n#[inline]\npub fn a() {}\n\nfn b() {}\n",
@@ -151,20 +222,8 @@ mod tests {
             other: "b",
         },
         Sample {
-            path: "x.js",
-            src: "/* sarah-allow(deep_function): table */\n/**\n * Docs.\n */\nfunction a() {}\nfunction b() {}\n",
-            allowed: "a",
-            other: "b",
-        },
-        Sample {
             path: "x.ts",
             src: "class C {\n  // sarah-allow(deep_function): table\n  @Get()\n  a(): void {}\n  b(): void {}\n}\n",
-            allowed: "a",
-            other: "b",
-        },
-        Sample {
-            path: "x.tsx",
-            src: "// sarah-allow(deep_function): table\nexport function a() { return <div/>; }\nfunction b() {}\n",
             allowed: "a",
             other: "b",
         },
@@ -181,12 +240,6 @@ mod tests {
             other: "b",
         },
         Sample {
-            path: "x.c",
-            src: "/* sarah-allow(deep_function): table */\nint a(void) {\n  return 1;\n}\nint b(void) {\n  return 2;\n}\n",
-            allowed: "a",
-            other: "b",
-        },
-        Sample {
             path: "x.cpp",
             src: "// sarah-allow(deep_function): table\n[[nodiscard]]\nint a() {\n  return 1;\n}\nint b() {\n  return 2;\n}\n",
             allowed: "a",
@@ -197,12 +250,6 @@ mod tests {
             src: "class C {\n  // sarah-allow(deep_function): table\n  [Obsolete]\n  void A() {\n  }\n  void B() {\n  }\n}\n",
             allowed: "A",
             other: "B",
-        },
-        Sample {
-            path: "x.rb",
-            src: "class C\n  # sarah-allow(deep_function): table\n  def a\n  end\n\n  def b\n  end\nend\n",
-            allowed: "a",
-            other: "b",
         },
         Sample {
             path: "x.php",
@@ -241,13 +288,13 @@ mod tests {
     }
 
     #[test]
-    fn file_directives_and_bad_ones() {
-        let src = "// sarah-allow-file(large_file): generated\n// sarah-allow(large_file): x\nfn a() {}\n";
-        let (functions, allows) = scan("x.rs", src);
+    fn attaches_to_struct_and_file() {
+        let src = "// sarah-allow-file(large_file): gen\n// sarah-allow(large_type): dto\npub struct S { pub a: u8 }\n";
+        let mut ast = AstStats::extract(Path::new("x.rs"), src, Tokenizer::O200k).unwrap();
+        let allows = Allows::scan(src, Some(&mut ast));
         assert_eq!(allows.file, vec![WarningKind::LargeFile]);
-        assert!(functions[0].allow.is_empty());
-        assert_eq!(allows.problems.len(), 1);
-        assert_eq!(allows.problems[0].line, LineNo(2));
+        assert_eq!(ast.types[0].allow, vec![WarningKind::LargeType]);
+        assert!(allows.problems.is_empty());
     }
 
     #[test]

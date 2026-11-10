@@ -4,7 +4,9 @@ use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 
 use crate::count::Tokenizer;
 use crate::report::SortBy;
-use crate::units::{Cognitive, Cyclomatic, Depth, Lines, Params, Tokens};
+use crate::units::{
+    Cognitive, Cyclomatic, Depth, Fields, Functions, Lines, Methods, Params, Tokens,
+};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum Format {
@@ -80,6 +82,10 @@ pub struct RatchetArgs {
     /// Print the changes without writing sarah.toml
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Exit with code 1 if any limit in sarah.toml can be lowered (writes nothing)
+    #[arg(long)]
+    pub check: bool,
 }
 
 /// The default command: measure, warn, report.
@@ -106,6 +112,10 @@ pub struct CheckArgs {
     #[arg(long)]
     pub max_file_lines: Option<Lines>,
 
+    /// Warn on files declaring more functions than this [default: off]
+    #[arg(long)]
+    pub max_file_fns: Option<Functions>,
+
     /// [default: 80]
     #[arg(long)]
     pub max_fn_lines: Option<Lines>,
@@ -122,6 +132,10 @@ pub struct CheckArgs {
     #[arg(long)]
     pub max_fn_params: Option<Params>,
 
+    /// Warn on functions with more boolean parameters than this [default: off]
+    #[arg(long)]
+    pub max_fn_bool_params: Option<Params>,
+
     /// Warn on functions over this cyclomatic complexity [default: off]
     #[arg(long)]
     pub max_fn_cyclomatic: Option<Cyclomatic>,
@@ -129,6 +143,14 @@ pub struct CheckArgs {
     /// Warn on functions over this cognitive complexity [default: off]
     #[arg(long)]
     pub max_fn_cognitive: Option<Cognitive>,
+
+    /// Warn on structs/classes with more fields than this [default: off]
+    #[arg(long)]
+    pub max_type_fields: Option<Fields>,
+
+    /// Warn on structs/classes with more methods than this [default: off]
+    #[arg(long)]
+    pub max_type_methods: Option<Methods>,
 
     /// Show per-folder totals in table/md output (JSON always has them)
     #[arg(long)]
@@ -141,6 +163,14 @@ pub struct CheckArgs {
     /// Only report warnings for files changed since this git revision (and their folders)
     #[arg(long, value_name = "REV")]
     pub changed_since: Option<String>,
+
+    /// Show token, line and warning deltas since the merge base with this git revision
+    #[arg(long, value_name = "REV")]
+    pub diff: Option<String>,
+
+    /// Warn when a `sarah-allow` comment suppresses no warning
+    #[arg(long)]
+    pub unused_allow: bool,
 
     /// Ignore `sarah-allow` comments and report every warning
     #[arg(long)]

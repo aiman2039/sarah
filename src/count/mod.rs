@@ -7,5 +7,5 @@ mod generated;
 mod pretokenizer;
 mod tokenizer;
 
-pub use file_stats::{Analysis, AnalyzeInput, FileStats};
+pub use file_stats::{Analysis, AnalyzeInput, FileStats, SourceInput};
 pub use tokenizer::Tokenizer;

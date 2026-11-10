@@ -41,4 +41,14 @@ impl WalkFilters<'_> {
         }
         Ok(overrides.build()?)
     }
+
+    /// Whether a single path under `root` passes `include`, `exclude` and default excludes.
+    pub fn accepts(&self, root: &Path, path: &Path) -> Result<bool> {
+        let overrides = self.overrides(root)?;
+        let matched = overrides.matched(path, false);
+        if matched.is_ignore() {
+            return Ok(false);
+        }
+        Ok(self.include.is_empty() || matched.is_whitelist())
+    }
 }

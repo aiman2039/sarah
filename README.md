@@ -33,19 +33,22 @@ sarah -f sarif > sarah.sarif      # SARIF 2.1.0 for code scanning
 sarah -f json > baseline.json     # save today's warnings...
 sarah --baseline baseline.json    # ...then report only new ones, or ones that got worse
 sarah --changed-since origin/main # only warnings for files changed on this branch
+sarah --diff origin/main          # show token, line and warning deltas since merge base
 sarah -f html > sarah.html        # self-contained treemap of files by size (works offline)
 
-sarah init                        # write sarah.toml with limits at today's maximums
+sarah init                        # write sarah.toml with file and folder limits at today's maximums
 sarah ratchet                     # lower those limits as the code shrinks (never raises them)
+sarah ratchet --check             # exit 1 if any limit in sarah.toml can be lowered (CI)
 sarah mcp                         # serve sarah to AI agents over MCP (stdio)
 ```
 
 A directory named like a command (`init`, `ratchet`, `mcp`) needs a path prefix: `sarah ./init`.
 
 Key flags: `--sort tokens|lines|name`, `-n/--top N`, `--tokenizer o200k|cl100k`,
-`--max-file-tokens 8000`, `--max-file-lines 500`, `--max-fn-lines 80`,
-`--max-fn-tokens N`, `--max-fn-depth N`, `--max-fn-params N`, `--max-fn-cyclomatic N`
-and `--max-fn-cognitive N` (off by default),
+`--max-file-tokens 8000`, `--max-file-lines 500`, `--max-file-fns N`, `--max-fn-lines 80`,
+`--max-fn-tokens N`, `--max-fn-depth N`, `--max-fn-params N`, `--max-fn-bool-params N`,
+`--max-fn-cyclomatic N`, `--max-fn-cognitive N`, `--max-type-fields N` and
+`--max-type-methods N` (off by default unless noted), `--unused-allow`,
 `-i/--include GLOB`, `-e/--exclude GLOB`, `--hidden`, `--no-functions`,
 `--no-default-excludes` (lockfiles, `*.min.js`, `*.map` and generated files are skipped by default),
 `--config FILE` (default: `<PATH>/sarah.toml` when it exists), `--no-allow` (ignore `sarah-allow` comments).
@@ -89,13 +92,16 @@ fn run() { /* ... */ }
 # sarah-allow-file(large_file): generated
 ```
 
-- `sarah-allow(kinds): reason` goes directly above a function: `large_function`, `deep_function`,
-  `too_many_params`, `complex_function`.
-- `sarah-allow-file(kinds): reason` goes anywhere in a file: `large_file` and every function kind.
+- `sarah-allow(kinds): reason` goes directly above a function or struct/class: `large_function`,
+  `deep_function`, `too_many_params`, `too_many_bool_params`, `complex_function`, `large_type`.
+- `sarah-allow-file(kinds): reason` goes anywhere in a file: `large_file`, `too_many_functions`,
+  `forbidden_import` and every function/type kind.
 - No list (`sarah-allow: reason`) allows every kind of that scope.
 - The `:` is required; the reason after it may be empty.
 - Any line-comment style works (`//`, `#`, `--`, `/* */`); the comment must be on its own line.
-- A malformed directive, or one above no function, is a `bad_allow` warning.
+- A malformed directive, or one above no function/type, is a `bad_allow` warning.
+- With `--unused-allow` or `unused_allow = true`, a directive that suppresses no warning is an
+  `unused_allow` warning.
 - Allowed warnings are removed before `--baseline` and `--fail-on-warn`. The report shows
   "N warnings allowed by sarah-allow comments" (JSON: `allowed`); `--no-allow` shows them all.
 - Folder rules have no comment; override them per glob in `sarah.toml`.
@@ -105,19 +111,25 @@ fn run() { /* ... */ }
 Optional. Without it, sarah behaves as above. CLI flags win over the file.
 
 ```toml
-preset = "rust"            # rust | python | go | ts: built-in folder rules, applied first
+preset = "rust"            # rust | python | go | ts | js | java | kotlin | csharp | swift | ruby | php | c | cpp | scala | elixir | zig
+unused_allow = true        # warn when sarah-allow suppresses nothing
 exclude = ["vendor/**"]    # added to --exclude (include = [...] too)
 
-# Size limits per glob. Later matches override earlier ones, field by field.
+# Size and import rules per glob. Later matches override earlier ones, field by field.
 [[files]]
 path = "**"
 max_fn_lines = 60
 max_fn_depth = 4
 
 [[files]]
+path = "src/domain/**"
+forbid_imports = ["crate::cli*", "crate::mcp*"]
+
+[[files]]
 path = "tests/**"
-max_fn_lines = 200          # also: max_file_tokens, max_file_lines, max_fn_tokens,
-                            # max_fn_params, max_fn_cyclomatic, max_fn_cognitive
+max_fn_lines = 200          # also: max_file_tokens, max_file_lines, max_file_fns, max_fn_tokens,
+                            # max_fn_params, max_fn_bool_params, max_fn_cyclomatic, max_fn_cognitive,
+                            # max_type_fields, max_type_methods, unused_allow
 
 # Folder rules. Later matches override earlier ones, field by field.
 [[folder]]
@@ -125,13 +137,15 @@ path = "src/**"             # `*` = one path part, `**` = any; the root is "." (
 max_files = 12              # files directly in the folder
 max_dirs = 8                # sub-folders directly in the folder
 max_depth = 4               # levels below the root; reported once per branch
+max_lines = 3000            # lines in the whole subtree
 max_tokens = 40000          # tokens in the whole subtree (one agent context)
 min_files = 2               # direct entries (files + folders); fewer = flatten it
 require = ["mod.rs"]        # each glob must match a file in the folder
 forbid = ["utils*", "misc*"] # no file or folder name may match
+forbid_imports = ["crate::cli*"] # no import in files of the folder may match
 allow_only = ["cli", "walk"] # sub-folder names must match one of these
 naming = "snake_case"       # snake_case | kebab-case | camelCase | PascalCase
-no_sibling_module = true    # no `x.rs` next to `x/`
+no_sibling_module = true    # no `x.<ext>` code module next to `x/`
 
 [[folder]]
 path = "src/generated/**"
@@ -151,15 +165,13 @@ Token counts use OpenAI encodings; Claude's tokenizer isn't public, so treat the
 
 ## Ratchet: `sarah init` and `sarah ratchet`
 
-`sarah init` writes `<PATH>/sarah.toml` (or `--config FILE`) with one `[[files]]` rule
-for `**`. Each limit is today's maximum, so new code cannot be worse than the worst code
-today. It does not overwrite an existing file.
+`sarah init` writes `<PATH>/sarah.toml` (or `--config FILE`) with `[[files]]` and
+`[[folder]]` rules at today's maximums. It never overwrites an existing file.
 
-`sarah ratchet` lowers each `max_*` key of each `[[files]]` rule to the largest value
-that the rule governs today (the last matching rule that sets the key). It never raises
-a limit, never adds a key, and keeps comments and layout. Values that `sarah-allow`
-comments exempt are left out. `--dry-run` prints the changes only. Run it in CI or
-after a refactor, and commit the result.
+`sarah ratchet` lowers each `max_*` key in `[[files]]` and `[[folder]]` to today's
+maximum. It never raises a limit, never adds a key, and keeps comments. `sarah-allow`
+values are excluded. `--dry-run` prints changes only; `--check` exits 1 when any limit
+can be lowered.
 
 ## MCP server: `sarah mcp`
 

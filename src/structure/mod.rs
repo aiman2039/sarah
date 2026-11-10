@@ -7,5 +7,5 @@ mod rules;
 mod tree;
 
 pub use preset::Preset;
-pub use rules::{FolderRule, FolderRules};
-pub use tree::{DirStats, DirTree};
+pub use rules::{FolderLimitKey, FolderRule, FolderRules};
+pub use tree::{DirNode, DirStats, DirTree};

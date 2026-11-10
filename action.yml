@@ -26,6 +26,10 @@ inputs:
     description: Add each warning as a GitHub annotation on the file (and line) it is about
     required: false
     default: 'true'
+  diff:
+    description: Git revision to compute token, line and warning deltas against (e.g. origin/main)
+    required: false
+    default: ''
   version:
     description: Release tag to install (e.g. v0.1.3). Defaults to the action ref when it is a tag, else the latest release
     required: false
@@ -45,6 +49,12 @@ outputs:
   warnings:
     description: Number of refactor warnings
     value: ${{ steps.run.outputs.warnings }}
+  tokens-delta:
+    description: Token count delta when diff input is set
+    value: ${{ steps.run.outputs.tokens-delta }}
+  warnings-delta:
+    description: Warning count delta when diff input is set
+    value: ${{ steps.run.outputs.warnings-delta }}
 
 runs:
   using: composite
@@ -111,12 +121,14 @@ runs:
         FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
         SUMMARY: ${{ inputs.summary }}
         ANNOTATIONS: ${{ inputs.annotations }}
+        DIFF_REV: ${{ inputs.diff }}
       run: |
         set -euo pipefail
         report="$RUNNER_TEMP/sarah-report.json"
         markdown="$RUNNER_TEMP/sarah-report.md"
         # Word-split EXTRA_ARGS like a shell would, honoring quotes.
         eval "extra=($EXTRA_ARGS)"
+        if [[ -n "$DIFF_REV" ]]; then extra+=(--diff "$DIFF_REV"); fi
         if [[ "$ANNOTATIONS" == true ]]; then
           sarah "$TARGET_PATH" --format github ${extra[@]+"${extra[@]}"} || true
         fi
@@ -135,5 +147,7 @@ runs:
           echo "json=$report"
           echo "tokens=$(jq '.totals.tokens' "$report")"
           echo "warnings=$(jq '.warnings | length' "$report")"
+          echo "tokens-delta=$(jq -r '.diff.tokens_delta // empty' "$report")"
+          echo "warnings-delta=$(jq -r '.diff.warnings_delta // empty' "$report")"
         } >> "$GITHUB_OUTPUT"
         exit "$status"

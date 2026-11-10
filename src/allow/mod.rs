@@ -1,6 +1,6 @@
-//! `sarah-allow` comments: per-function and per-file opt-outs from size warnings.
+//! `sarah-allow` comments: per-function, per-type and per-file opt-outs from warnings.
 
 mod attach;
 mod directive;
 
-pub use attach::Allows;
+pub use attach::{AllowTarget, Allows, TrackedAllow};

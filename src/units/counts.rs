@@ -117,6 +117,60 @@ pub struct Cyclomatic(pub usize);
 #[serde(transparent)]
 pub struct Cognitive(pub usize);
 
+/// Number of functions declared in one file.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Functions(pub usize);
+
+/// Number of fields declared on a struct or class.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Fields(pub usize);
+
+/// Number of methods declared on a struct or class.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Methods(pub usize);
+
 impl Tokens {
     pub fn saturating_add(self, rhs: Self) -> Self {
         Self(self.0.saturating_add(rhs.0))

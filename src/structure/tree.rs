@@ -123,6 +123,8 @@ mod tests {
             blanks: Lines(0),
             tokens: Tokens(tokens),
             functions: None,
+            types: Vec::new(),
+            imports: Vec::new(),
             allows: Allows::default(),
         }
     }

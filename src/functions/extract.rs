@@ -6,13 +6,23 @@ use tree_sitter::{Parser, Tree};
 use tree_sitter_tags::TagsContext;
 
 use super::complexity::{Complexity, ComplexityHelpers};
+use super::imports::{ImportHelpers, ImportRef};
 use super::lang::Lang;
-use super::nesting::NestingHelpers;
-use super::params::ParamHelpers;
+use super::nesting::{NestingHelpers, NestingStats};
+use super::params::{ParamCounts, ParamHelpers};
 use super::scope::Scope;
+use super::types::{TypeHelpers, TypeStats};
 use crate::count::Tokenizer;
 use crate::report::WarningKind;
-use crate::units::{Cognitive, Cyclomatic, Depth, LineNo, Lines, Params, Tokens};
+use crate::units::{Cognitive, Cyclomatic, Depth, LineNo, LineSpan, Lines, Params, Tokens};
+
+/// Everything extracted from one parsed syntax tree: functions, types and imports.
+#[derive(Debug, Default)]
+pub struct AstStats {
+    pub functions: Vec<FnStats>,
+    pub types: Vec<TypeStats>,
+    pub imports: Vec<ImportRef>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FnStats {
@@ -27,19 +37,65 @@ pub struct FnStats {
     /// Declared parameters; `None` for languages without a parameter table.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<Params>,
+    /// Declared boolean flag parameters; omitted when 0 or unsupported.
+    #[serde(skip_serializing_if = "FnStats::skip_bool_params")]
+    pub bool_params: Option<Params>,
     pub cyclomatic: Cyclomatic,
     pub cognitive: Cognitive,
     /// Warning kinds a `sarah-allow` comment above the function turns off.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allow: Vec<WarningKind>,
+    #[serde(skip)]
+    pub deepest_block: Option<LineSpan>,
+    #[serde(skip)]
+    pub largest_block: Option<LineSpan>,
+}
+
+/// Stateless AST helpers shared outside `functions`.
+pub struct AstHelpers;
+
+impl AstHelpers {
+    pub fn is_code_file(path: &Path) -> bool {
+        Lang::from_path(path).is_some()
+    }
+}
+
+impl AstStats {
+    /// Parse `source` once and extract functions, types and imports.
+    pub fn extract(path: &Path, source: &str, tokenizer: Tokenizer) -> Option<Self> {
+        let lang = Lang::from_path(path)?;
+        let tree = FnStats::parse(lang, source)?;
+        let root_scope = Scope {
+            lang,
+            node: tree.root_node(),
+            source,
+        };
+        let functions = FnStats::from_tree(&root_scope, tokenizer)?;
+        let types = TypeHelpers::extract(&root_scope);
+        let imports = ImportHelpers::extract(&root_scope);
+        Some(Self {
+            functions,
+            types,
+            imports,
+        })
+    }
 }
 
 impl FnStats {
     /// Extract function/method definitions with their sizes. Returns `None` for unsupported languages.
+    #[cfg(test)]
     pub fn extract(path: &Path, source: &str, tokenizer: Tokenizer) -> Option<Vec<Self>> {
-        let lang = Lang::from_path(path)?;
+        AstStats::extract(path, source, tokenizer).map(|ast| ast.functions)
+    }
+
+    pub fn skip_bool_params(params: &Option<Params>) -> bool {
+        params.is_none_or(|p| p.0 == 0)
+    }
+
+    fn from_tree(root_scope: &Scope, tokenizer: Tokenizer) -> Option<Vec<Self>> {
+        let lang = root_scope.lang;
+        let source = root_scope.source;
         let config = lang.config()?;
-        let tree = Self::parse(lang, source)?;
         let mut ctx = TagsContext::new();
         let (tags, _) = ctx.generate_tags(config, source.as_bytes(), None).ok()?;
 
@@ -50,42 +106,69 @@ impl FnStats {
             if !tag.is_definition || !matches!(kind, "function" | "method") {
                 continue;
             }
-            // Rust methods match both the method and function patterns; keep the first.
             if !seen.insert(tag.range.clone()) {
                 continue;
             }
-            // Tag ranges come from the parser and land on UTF-8 boundaries; skip any that don't.
             let (Some(body), Some(name), Some(before), Some(node)) = (
                 source.get(tag.range.clone()),
                 source.get(tag.name_range),
                 source.get(..tag.range.start),
-                tree.root_node()
+                root_scope
+                    .node
                     .descendant_for_byte_range(tag.range.start, tag.range.end),
             ) else {
                 continue;
             };
             let scope = Scope { lang, node, source };
-            let Complexity {
-                cyclomatic,
-                cognitive,
-            } = ComplexityHelpers::measure(&scope);
-            let start_line = LineNo(1).below(before.matches('\n').count());
-            let end_line = start_line.below(body.matches('\n').count());
-            out.push(Self {
-                name: name.to_string(),
-                kind: kind.to_string(),
-                start_line,
-                end_line,
-                lines: start_line.span_to(end_line),
-                tokens: tokenizer.count(body),
-                depth: NestingHelpers::depth(&scope),
-                params: ParamHelpers::count(&scope),
-                cyclomatic,
-                cognitive,
-                allow: Vec::new(),
-            });
+            out.push(Self::measure_one(
+                &scope,
+                BodySlice {
+                    name,
+                    kind,
+                    before,
+                    body,
+                },
+                tokenizer,
+            ));
         }
         Some(out)
+    }
+
+    fn measure_one(scope: &Scope, slice: BodySlice<'_>, tokenizer: Tokenizer) -> Self {
+        let BodySlice {
+            name,
+            kind,
+            before,
+            body,
+        } = slice;
+        let Complexity {
+            cyclomatic,
+            cognitive,
+        } = ComplexityHelpers::measure(scope);
+        let NestingStats {
+            depth,
+            deepest,
+            largest,
+        } = NestingHelpers::measure(scope);
+        let ParamCounts { total, bools } = ParamHelpers::count(scope);
+        let start_line = LineNo(1).below(before.matches('\n').count());
+        let end_line = start_line.below(body.matches('\n').count());
+        Self {
+            name: name.to_string(),
+            kind: kind.to_string(),
+            start_line,
+            end_line,
+            lines: start_line.span_to(end_line),
+            tokens: tokenizer.count(body),
+            depth,
+            params: total,
+            bool_params: bools,
+            cyclomatic,
+            cognitive,
+            allow: Vec::new(),
+            deepest_block: deepest,
+            largest_block: largest,
+        }
     }
 
     fn parse(lang: Lang, source: &str) -> Option<Tree> {
@@ -93,6 +176,13 @@ impl FnStats {
         parser.set_language(&lang.language()).ok()?;
         parser.parse(source, None)
     }
+}
+
+struct BodySlice<'a> {
+    name: &'a str,
+    kind: &'a str,
+    before: &'a str,
+    body: &'a str,
 }
 
 #[cfg(test)]

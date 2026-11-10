@@ -2,6 +2,7 @@
 
 mod args;
 mod command;
+mod diff;
 mod output;
 mod run;
 mod scan;

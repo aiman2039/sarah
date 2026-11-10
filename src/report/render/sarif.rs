@@ -4,7 +4,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::common::RenderHelpers;
-use crate::report::model::{Report, Warning};
+use crate::report::{Report, Warning};
 
 impl Report {
     /// SARIF 2.1.0 for GitHub code scanning. `root` is the analyzed path as given.

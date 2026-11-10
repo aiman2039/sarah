@@ -14,6 +14,8 @@ const CONFIG_FILE: &str = "sarah.toml";
 pub struct Config {
     /// Folder rules applied before the `[[folder]]` rules.
     pub preset: Option<Preset>,
+    /// Report `unused_allow` warnings unless a matching `[[files]]` rule overrides it.
+    pub unused_allow: Option<bool>,
     /// Added to `--include`.
     #[serde(default)]
     pub include: Vec<String>,
@@ -62,6 +64,7 @@ mod tests {
         let config: Config = toml::from_str(
             r#"
             preset = "rust"
+            unused_allow = true
             exclude = ["vendor/**"]
 
             [[files]]
@@ -76,6 +79,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(config.preset, Some(Preset::Rust));
+        assert_eq!(config.unused_allow, Some(true));
         assert_eq!(config.exclude, vec!["vendor/**"]);
         assert_eq!(config.files.len(), 1);
         assert_eq!(config.folder.len(), 1);

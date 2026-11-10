@@ -11,6 +11,18 @@ pub enum Preset {
     Python,
     Go,
     Ts,
+    Js,
+    Java,
+    Kotlin,
+    Csharp,
+    Swift,
+    Ruby,
+    Php,
+    C,
+    Cpp,
+    Scala,
+    Elixir,
+    Zig,
 }
 
 /// Any `src` folder, at the root or in a package of a monorepo.
@@ -25,40 +37,67 @@ const CATCH_ALL: &[&str] = &[
 
 impl Preset {
     pub fn rules(self) -> Vec<FolderRule> {
-        let forbid = Some(CATCH_ALL.iter().map(ToString::to_string).collect());
+        let forbid = || Some(CATCH_ALL.iter().map(ToString::to_string).collect());
         match self {
-            Self::Rust => vec![FolderRule {
+            Self::Rust => Self::rust_rules(forbid()),
+            Self::Python => vec![FolderRule {
+                path: IN_SRC.into(),
+                require: Some(vec!["__init__.py".into()]),
+                naming: Some(Naming::Snake),
+                forbid: forbid(),
+                ..FolderRule::default()
+            }],
+            Self::Go => vec![FolderRule {
+                path: "**/*".into(),
+                forbid: forbid(),
+                max_files: Some(30),
+                ..FolderRule::default()
+            }],
+            Self::Ts | Self::Js => Self::for_paths(&[SRC, IN_SRC], None, 20),
+            Self::Java | Self::Kotlin | Self::Scala => Self::for_paths(&[IN_SRC], None, 25),
+            Self::Csharp => Self::for_paths(&["**/*"], Some(Naming::Pascal), 25),
+            Self::Swift => Self::for_paths(&["**/Sources/**", IN_SRC], None, 25),
+            Self::Ruby => Self::for_paths(&["**/lib/**", "**/app/**"], Some(Naming::Snake), 25),
+            Self::Php => Self::for_paths(&[IN_SRC, "**/app/**"], None, 25),
+            Self::C | Self::Cpp => Self::for_paths(&[IN_SRC, "**/include/**"], None, 30),
+            Self::Elixir => Self::for_paths(&["**/lib/**"], Some(Naming::Snake), 25),
+            Self::Zig => Self::for_paths(&[IN_SRC], Some(Naming::Snake), 25),
+        }
+    }
+
+    fn rust_rules(forbid: Option<Vec<String>>) -> Vec<FolderRule> {
+        // Cargo puts extra binaries in `src/bin/`, which has no `mod.rs`.
+        let bin_override = |path: &str| FolderRule {
+            path: path.into(),
+            require: Some(Vec::new()),
+            ..FolderRule::default()
+        };
+        vec![
+            FolderRule {
                 path: IN_SRC.into(),
                 require: Some(vec!["mod.rs".into()]),
                 naming: Some(Naming::Snake),
                 no_sibling_module: Some(true),
                 forbid,
                 ..FolderRule::default()
-            }],
-            Self::Python => vec![FolderRule {
-                path: IN_SRC.into(),
-                require: Some(vec!["__init__.py".into()]),
-                naming: Some(Naming::Snake),
-                forbid,
+            },
+            bin_override("**/src/bin"),
+            bin_override("**/src/bin/*"),
+        ]
+    }
+
+    fn for_paths(paths: &[&str], naming: Option<Naming>, max_files: usize) -> Vec<FolderRule> {
+        let forbid: Vec<String> = CATCH_ALL.iter().map(ToString::to_string).collect();
+        paths
+            .iter()
+            .map(|path| FolderRule {
+                path: (*path).into(),
+                forbid: Some(forbid.clone()),
+                naming,
+                max_files: Some(max_files),
                 ..FolderRule::default()
-            }],
-            Self::Go => vec![FolderRule {
-                path: "**/*".into(),
-                forbid,
-                max_files: Some(30),
-                ..FolderRule::default()
-            }],
-            // `src` itself counts here: a flat `src` is the case this limit is for.
-            Self::Ts => [SRC, IN_SRC]
-                .into_iter()
-                .map(|path| FolderRule {
-                    path: path.into(),
-                    forbid: forbid.clone(),
-                    max_files: Some(20),
-                    ..FolderRule::default()
-                })
-                .collect(),
-        }
+            })
+            .collect()
     }
 }
 
@@ -67,26 +106,32 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::config::DirPattern;
+    use crate::structure::FolderRules;
 
-    fn selected(preset: Preset, dir: &str) -> bool {
-        preset
-            .rules()
-            .iter()
-            .any(|rule| DirPattern::new(&rule.path).unwrap().matches(Path::new(dir)))
+    fn has_policy(preset: Preset, dir: &str) -> bool {
+        FolderRules::new(Some(preset), Vec::new())
+            .unwrap()
+            .policy_for(Path::new(dir))
+            .is_some()
     }
 
     #[test]
     fn ts_preset_covers_src_at_any_depth() {
         for dir in ["src", "src/chart", "apps/web/src", "apps/web/src/chart"] {
-            assert!(selected(Preset::Ts, dir), "{dir}");
+            assert!(has_policy(Preset::Ts, dir), "{dir}");
         }
-        assert!(!selected(Preset::Ts, "apps/web/docs"));
+        assert!(!has_policy(Preset::Ts, "apps/web/docs"));
     }
 
     #[test]
-    fn rust_preset_skips_the_crate_root() {
-        assert!(selected(Preset::Rust, "crates/a/src/net"));
-        assert!(!selected(Preset::Rust, "crates/a/src"));
+    fn rust_preset_skips_crate_root_and_relaxes_src_bin() {
+        let rules = FolderRules::new(Some(Preset::Rust), Vec::new()).unwrap();
+        assert!(rules.policy_for(Path::new("crates/a/src")).is_none());
+        let net = rules.policy_for(Path::new("crates/a/src/net")).unwrap();
+        assert_eq!(net.require.unwrap().find("mod.rs"), Some("mod.rs"));
+
+        let bin = rules.policy_for(Path::new("src/bin")).unwrap();
+        assert_eq!(bin.require.unwrap().iter().count(), 0);
+        assert_eq!(bin.naming, Some(Naming::Snake));
     }
 }

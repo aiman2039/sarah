@@ -1,25 +1,78 @@
+use tree_sitter::Node;
+
 use super::scope::Scope;
-use crate::units::Depth;
+use crate::units::{Depth, LineNo, LineSpan, Lines};
+
+/// Control-flow nesting summary for one function.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct NestingStats {
+    pub depth: Depth,
+    /// Span of the deepest nested control-flow block, when `depth >= 1`.
+    pub deepest: Option<LineSpan>,
+    /// Largest top-level control-flow block inside the function (>= 5 lines).
+    pub largest: Option<LineSpan>,
+}
+
+struct NestingAcc {
+    stats: NestingStats,
+    fn_lines: Lines,
+}
 
 /// Stateless helpers that measure control-flow nesting in a syntax tree.
 pub(super) struct NestingHelpers;
 
 impl NestingHelpers {
-    /// Deepest nesting below the function node.
-    pub(super) fn depth(scope: &Scope) -> Depth {
+    /// Deepest nesting and split-candidate block spans below the function node.
+    pub(super) fn measure(scope: &Scope) -> NestingStats {
         let kinds = scope.grammar().nesting;
-        let mut max = 0;
+        let mut acc = NestingAcc {
+            stats: NestingStats::default(),
+            fn_lines: Self::span_of(scope.node).lines(),
+        };
         let mut stack = vec![(scope.node, 0usize)];
         while let Some((parent, depth)) = stack.pop() {
-            max = max.max(depth);
             let mut cursor = parent.walk();
             for child in parent.children(&mut cursor) {
                 let opens =
                     kinds.contains(&scope.kind_of(child)) && !Scope::is_else_if(child, parent);
-                stack.push((child, depth.saturating_add(usize::from(opens))));
+                let next = depth.saturating_add(usize::from(opens));
+                if opens {
+                    acc.record(Self::span_of(child), next);
+                }
+                stack.push((child, next));
             }
         }
-        Depth(max)
+        acc.stats
+    }
+
+    fn span_of(node: Node) -> LineSpan {
+        LineSpan {
+            start: LineNo(node.start_position().row.saturating_add(1)),
+            end: LineNo(node.end_position().row.saturating_add(1)),
+        }
+    }
+}
+
+impl NestingAcc {
+    fn record(&mut self, span: LineSpan, depth: usize) {
+        if depth > self.stats.depth.0
+            || (depth == self.stats.depth.0
+                && self
+                    .stats
+                    .deepest
+                    .is_none_or(|prev| span.lines() > prev.lines()))
+        {
+            self.stats.depth = Depth(depth);
+            self.stats.deepest = Some(span);
+        }
+        let lines = span.lines();
+        if depth == 1
+            && lines >= Lines(5)
+            && lines < self.fn_lines
+            && self.stats.largest.is_none_or(|prev| lines > prev.lines())
+        {
+            self.stats.largest = Some(span);
+        }
     }
 }
 

@@ -2,8 +2,10 @@
 
 mod file;
 mod glob;
+mod keys;
 mod limits;
 
 pub use file::Config;
 pub use glob::{DirPattern, NamePatterns};
-pub use limits::{LimitKey, LimitPatch, LimitRules, Limits};
+pub use keys::LimitKey;
+pub use limits::{LimitPatch, LimitRules, Limits};

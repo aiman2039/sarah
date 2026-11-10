@@ -1,20 +1,54 @@
 use std::cmp::Reverse;
+use std::path::Path;
 
-use super::model::{TopFn, Warning, WarningKind};
+use super::model::TopFn;
+use super::warning::{Warning, WarningKind};
 use crate::config::{LimitRules, Limits};
 use crate::count::FileStats;
+use crate::functions::TypeStats;
+use crate::structure::FolderRules;
 
 impl Warning {
-    /// Files over their token or line limit, in report order.
-    pub(super) fn for_files(files: &[FileStats], rules: &LimitRules) -> Vec<Self> {
+    /// Files over their token, line or function-count limit, in report order.
+    pub fn for_files(files: &[FileStats], rules: &LimitRules) -> Vec<Self> {
         files
             .iter()
-            .filter_map(|f| Self::for_file(f, &rules.for_path(&f.path)))
+            .flat_map(|f| {
+                let limits = rules.for_path(&f.path);
+                [Self::for_file(f, &limits), Self::for_file_fns(f, &limits)]
+                    .into_iter()
+                    .flatten()
+            })
             .collect()
     }
 
-    /// Functions over their size or nesting limits, in ranked order.
-    pub(super) fn for_functions(functions: &[TopFn], rules: &LimitRules) -> Vec<Self> {
+    /// Structs and classes over their field or method limits.
+    pub fn for_types(files: &[FileStats], rules: &LimitRules) -> Vec<Self> {
+        files
+            .iter()
+            .flat_map(|f| {
+                let limits = rules.for_path(&f.path);
+                f.types
+                    .iter()
+                    .filter_map(move |ty| Self::for_type(&f.path, ty, &limits))
+            })
+            .collect()
+    }
+
+    /// Imports matching `forbid_imports` in `[[files]]` or `[[folder]]`.
+    pub fn for_imports(
+        files: &[FileStats],
+        rules: &LimitRules,
+        folders: &FolderRules,
+    ) -> Vec<Self> {
+        files
+            .iter()
+            .flat_map(|f| Self::file_imports(f, rules, folders))
+            .collect()
+    }
+
+    /// Functions over their size, nesting, parameter or complexity limits, in ranked order.
+    pub fn for_functions(functions: &[TopFn], rules: &LimitRules) -> Vec<Self> {
         functions
             .iter()
             .flat_map(|func| {
@@ -23,6 +57,7 @@ impl Warning {
                     Self::for_large_function(func, &limits),
                     Self::for_deep_function(func, &limits),
                     Self::for_many_params(func, &limits),
+                    Self::for_many_bool_params(func, &limits),
                     Self::for_complex_function(func, &limits),
                 ]
             })
@@ -31,7 +66,7 @@ impl Warning {
     }
 
     /// Malformed or misplaced `sarah-allow` comments, file by file.
-    pub(super) fn for_allow_problems(files: &[FileStats]) -> Vec<Self> {
+    pub fn for_allow_problems(files: &[FileStats]) -> Vec<Self> {
         files
             .iter()
             .flat_map(|f| {
@@ -47,6 +82,36 @@ impl Warning {
             .collect()
     }
 
+    fn file_imports(f: &FileStats, rules: &LimitRules, folders: &FolderRules) -> Vec<Self> {
+        let by_file = rules.forbid_imports_for(&f.path);
+        let dir = match f.path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        };
+        let policy = folders.policy_for(dir);
+        let by_folder = policy.as_ref().and_then(|p| p.forbid_imports);
+        f.imports
+            .iter()
+            .filter_map(|imp| {
+                let pat = by_file
+                    .and_then(|p| p.find(&imp.path))
+                    .or_else(|| by_folder.and_then(|p| p.find(&imp.path)))?;
+                Some(
+                    Self::new(
+                        f.path.clone(),
+                        WarningKind::ForbiddenImport,
+                        format!(
+                            "import {:?} at L{} matches forbidden {pat:?}",
+                            imp.path, imp.line
+                        ),
+                    )
+                    .at_line(imp.line)
+                    .about(imp.path.clone()),
+                )
+            })
+            .collect()
+    }
+
     fn for_file(f: &FileStats, limits: &Limits) -> Option<Self> {
         let mut over = Vec::new();
         if f.tokens > limits.file_tokens {
@@ -58,7 +123,6 @@ impl Warning {
         if over.is_empty() {
             return None;
         }
-
         let mut biggest: Vec<_> = f.functions.iter().flatten().collect();
         biggest.sort_by_key(|x| Reverse(x.lines));
         let hint = if biggest.is_empty() {
@@ -78,6 +142,49 @@ impl Warning {
         ))
     }
 
+    fn for_file_fns(f: &FileStats, limits: &Limits) -> Option<Self> {
+        let max = limits.file_fns?;
+        let count = f.functions.as_ref()?.len();
+        (count > max.0).then(|| {
+            Self::new(
+                f.path.clone(),
+                WarningKind::TooManyFunctions,
+                format!("{count} functions (>{max}) — split into focused modules"),
+            )
+        })
+    }
+
+    fn for_type(path: &Path, ty: &TypeStats, limits: &Limits) -> Option<Self> {
+        let fields = limits.type_fields.filter(|max| ty.fields > *max);
+        let methods = limits.type_methods.filter(|max| ty.methods > *max);
+        let over: Vec<_> = [
+            fields.map(|max| format!("{} fields (>{max})", ty.fields)),
+            methods.map(|max| format!("{} methods (>{max})", ty.methods)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if over.is_empty() {
+            return None;
+        }
+        Some(
+            Self::new(
+                path.to_path_buf(),
+                WarningKind::LargeType,
+                format!(
+                    "{} {} at L{}-{}: {} — split responsibilities into smaller types",
+                    ty.kind,
+                    ty.name,
+                    ty.start_line,
+                    ty.end_line,
+                    over.join(", ")
+                ),
+            )
+            .at_line(ty.start_line)
+            .about(ty.name.clone()),
+        )
+    }
+
     fn for_large_function(func: &TopFn, limits: &Limits) -> Option<Self> {
         let long = func.lines > limits.fn_lines;
         let heavy = limits.fn_tokens.filter(|max| func.tokens > *max);
@@ -93,20 +200,28 @@ impl Warning {
             Some(max) => format!("{} tokens (>{max})", func.tokens),
             None => format!("{} tokens", func.tokens),
         };
+        let split = match func.largest_block {
+            Some(span) => format!(" (largest block at L{}-{})", span.start, span.end),
+            None => String::new(),
+        };
         Some(Self::function(
             func,
             WarningKind::LargeFunction,
-            format!("{lines}, {tokens} — consider extracting helpers"),
+            format!("{lines}, {tokens} — consider extracting helpers{split}"),
         ))
     }
 
     fn for_deep_function(func: &TopFn, limits: &Limits) -> Option<Self> {
         let max = limits.fn_depth.filter(|max| func.depth > *max)?;
+        let at = match func.deepest_block {
+            Some(span) => format!(", deepest at L{}-{}", span.start, span.end),
+            None => String::new(),
+        };
         Some(Self::function(
             func,
             WarningKind::DeepFunction,
             format!(
-                "nesting depth {} (>{max}) — use early returns or extract the inner blocks",
+                "nesting depth {} (>{max}{at}) — use early returns or extract the inner blocks",
                 func.depth
             ),
         ))
@@ -119,6 +234,18 @@ impl Warning {
             func,
             WarningKind::TooManyParams,
             format!("{params} parameters (>{max}) — group them in an input struct"),
+        ))
+    }
+
+    fn for_many_bool_params(func: &TopFn, limits: &Limits) -> Option<Self> {
+        let max = limits.fn_bool_params?;
+        let bools = func.bool_params.filter(|p| *p > max)?;
+        Some(Self::function(
+            func,
+            WarningKind::TooManyBoolParams,
+            format!(
+                "{bools} bool parameters (>{max}) — replace flags with an enum or options struct"
+            ),
         ))
     }
 
@@ -155,6 +282,6 @@ impl Warning {
             ),
         )
         .at_line(func.start_line)
-        .about(func.name.clone())
+        .about(func.subject_key.clone())
     }
 }

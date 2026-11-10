@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use super::model::{Report, Warning};
+use super::model::Report;
+use super::warning::Warning;
 
 impl Report {
     /// Keep only warnings about changed files or the folders that hold them.

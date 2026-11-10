@@ -2,6 +2,7 @@ use std::fmt::Write as _;
 
 use super::View;
 use super::common::RenderHelpers;
+use crate::report::diff::DiffSummary;
 use crate::report::model::Report;
 
 impl Report {
@@ -25,8 +26,12 @@ impl Report {
 
     fn markdown_summary(&self) -> String {
         let t = &self.totals;
+        let diff = self
+            .diff
+            .as_ref()
+            .map_or_else(String::new, DiffSummary::markdown_line);
         format!(
-            "# Repo size report\n\n**{} files**, {} lines ({} code, {} comments, {} blank), **{} tokens** (tokenizer: {})\n\n{}\n",
+            "# Repo size report\n\n**{} files**, {} lines ({} code, {} comments, {} blank), **{} tokens** (tokenizer: {})\n\n{diff}{}\n",
             t.files,
             t.lines,
             t.code,

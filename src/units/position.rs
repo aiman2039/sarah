@@ -10,6 +10,19 @@ use super::counts::Lines;
 #[serde(transparent)]
 pub struct LineNo(pub usize);
 
+/// 1-based inclusive line range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineSpan {
+    pub start: LineNo,
+    pub end: LineNo,
+}
+
+impl LineSpan {
+    pub fn lines(self) -> Lines {
+        self.start.span_to(self.end)
+    }
+}
+
 impl LineNo {
     /// The line `newlines` line breaks below this one.
     pub fn below(self, newlines: usize) -> Self {

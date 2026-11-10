@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::Result;
 use rayon::prelude::*;
 
@@ -31,6 +33,12 @@ impl WalkArgs {
             files,
             skipped,
         })
+    }
+
+    /// Whether `path` under `root` passes the CLI and `config` filters.
+    pub fn accepts_file(&self, root: &Path, config: &Config, path: &Path) -> Result<bool> {
+        let globs = self.globs(config);
+        self.walk_options(&globs).filters.accepts(root, path)
     }
 
     fn globs(&self, config: &Config) -> Globs {

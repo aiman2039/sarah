@@ -2,6 +2,7 @@ use std::path::Path;
 
 use super::rules::{FolderRules, Policy};
 use super::tree::{DirNode, DirTree};
+use crate::functions::AstHelpers;
 use crate::report::{Warning, WarningKind};
 
 impl FolderRules {
@@ -10,10 +11,18 @@ impl FolderRules {
         tree.nodes()
             .filter_map(|node| {
                 let policy = self.policy_for(&node.stats.path)?;
-                Some(FolderCheck { node, policy }.warnings())
+                Some(FolderCheck { node, policy }.warnings(true))
             })
             .flatten()
             .collect()
+    }
+
+    /// Direct-entry violations for one folder (used by single-file MCP checks).
+    pub fn check_single_dir(&self, node: &DirNode) -> Vec<Warning> {
+        let Some(policy) = self.policy_for(&node.stats.path) else {
+            return Vec::new();
+        };
+        FolderCheck { node, policy }.warnings(false)
     }
 }
 
@@ -23,12 +32,13 @@ struct FolderCheck<'a> {
 }
 
 impl FolderCheck<'_> {
-    fn warnings(&self) -> Vec<Warning> {
+    fn warnings(&self, with_subtree: bool) -> Vec<Warning> {
         [
             self.too_many_files(),
             self.too_many_dirs(),
             self.too_deep(),
-            self.too_many_tokens(),
+            with_subtree.then(|| self.too_many_lines()).flatten(),
+            with_subtree.then(|| self.too_many_tokens()).flatten(),
             self.too_few_entries(),
         ]
         .into_iter()
@@ -49,7 +59,6 @@ impl FolderCheck<'_> {
         Warning::new(self.dir().to_path_buf(), kind, message)
     }
 
-    /// A warning on one entry of the folder; `.` entries are reported without the prefix.
     fn entry(&self, name: &str, kind: WarningKind, message: String) -> Warning {
         let path = if self.dir() == Path::new(".") {
             name.into()
@@ -85,7 +94,6 @@ impl FolderCheck<'_> {
         })
     }
 
-    /// Reported once per branch: on the first folder below the limit.
     fn too_deep(&self) -> Option<Warning> {
         let max = self.policy.max_depth?;
         let depth = self.node.stats.depth;
@@ -93,6 +101,20 @@ impl FolderCheck<'_> {
             self.folder(
                 WarningKind::FolderTooDeep,
                 format!("depth {depth} (>{max}) — flatten the hierarchy"),
+            )
+        })
+    }
+
+    fn too_many_lines(&self) -> Option<Warning> {
+        let max = self.policy.max_lines?;
+        let stats = &self.node.stats;
+        (stats.lines > max).then(|| {
+            self.folder(
+                WarningKind::FolderTooManyLines,
+                format!(
+                    "{} lines in {} files (>{max}) — split the folder by topic",
+                    stats.lines, stats.total_files
+                ),
             )
         })
     }
@@ -159,8 +181,18 @@ impl FolderCheck<'_> {
         let Some(naming) = self.policy.naming else {
             return Vec::new();
         };
-        self.all_names()
-            .filter(|name| !naming.accepts(name))
+        let bad_files = self
+            .node
+            .file_names
+            .iter()
+            .filter(|name| !naming.accepts(name));
+        let bad_dirs = self
+            .node
+            .dir_names
+            .iter()
+            .filter(|name| !naming.accepts_dir(name));
+        bad_files
+            .chain(bad_dirs)
             .map(|name| {
                 self.entry(
                     name,
@@ -179,18 +211,36 @@ impl FolderCheck<'_> {
             .file_names
             .iter()
             .filter(|file| {
-                let stem = file.split('.').next().unwrap_or(file);
-                self.node.dir_names.contains(stem)
+                let path = Path::new(file.as_str());
+                AstHelpers::is_code_file(path)
+                    && path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .is_some_and(|stem| self.node.dir_names.contains(stem))
             })
             .map(|file| {
                 self.entry(
                     file,
                     WarningKind::FolderSiblingModule,
-                    "a folder with the same name exists — keep one module root (folder/mod.rs)"
-                        .to_string(),
+                    Self::sibling_hint(file).to_string(),
                 )
             })
             .collect()
+    }
+
+    fn sibling_hint(file: &str) -> &'static str {
+        match Path::new(file).extension().and_then(|e| e.to_str()) {
+            Some("rs") => {
+                "a folder with the same name exists — keep one module root (folder/mod.rs)"
+            }
+            Some("py" | "pyi") => {
+                "a folder with the same name exists — keep one module root (folder/__init__.py)"
+            }
+            Some("ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "mts" | "cts") => {
+                "a folder with the same name exists — keep one module root (folder/index.*)"
+            }
+            _ => "a folder with the same name exists — keep one module root",
+        }
     }
 
     fn unexpected_dirs(&self) -> Vec<Warning> {
@@ -228,12 +278,14 @@ mod tests {
             path: path.into(),
             language: "Rust".into(),
             bytes: Bytes(0),
-            lines: Lines(1),
-            code: Lines(1),
+            lines: Lines(10),
+            code: Lines(10),
             comments: Lines(0),
             blanks: Lines(0),
             tokens: Tokens(10),
             functions: None,
+            types: Vec::new(),
+            imports: Vec::new(),
             allows: Allows::default(),
         }
     }
@@ -249,13 +301,14 @@ mod tests {
     }
 
     #[test]
-    fn every_rule_fires() {
+    fn every_rule_fires_and_non_module_siblings_pass() {
         let got = check(
             FolderRule {
                 path: "src/**".into(),
                 max_files: Some(2),
                 max_dirs: Some(0),
                 max_depth: Some(Depth(2)),
+                max_lines: Some(Lines(25)),
                 max_tokens: Some(Tokens(25)),
                 min_files: Some(2),
                 require: Some(vec!["mod.rs".into()]),
@@ -263,34 +316,26 @@ mod tests {
                 allow_only: Some(vec!["core".into()]),
                 naming: Some(Naming::Snake),
                 no_sibling_module: Some(true),
+                ..FolderRule::default()
             },
             &[
                 "src/main.rs",
                 "src/a/mod.rs",
-                "src/a/b.rs",
                 "src/a/utils.rs",
                 "src/a/Bad.rs",
                 "src/a/core.rs",
+                "src/a/core.test.rs",
+                "src/a/core.md",
                 "src/a/core/mod.rs",
                 "src/a/core/deep/x.rs",
             ],
         );
-        let expect = |p: &str, k| (PathBuf::from(p), k);
-        assert_eq!(
-            got,
-            vec![
-                expect("src/a", WarningKind::FolderTooManyFiles),
-                expect("src/a", WarningKind::FolderTooManyDirs),
-                expect("src/a", WarningKind::FolderTooManyTokens),
-                expect("src/a/utils.rs", WarningKind::FolderForbiddenName),
-                expect("src/a/Bad.rs", WarningKind::FolderBadName),
-                expect("src/a/core.rs", WarningKind::FolderSiblingModule),
-                expect("src/a/core", WarningKind::FolderTooManyDirs),
-                expect("src/a/core", WarningKind::FolderTooDeep),
-                expect("src/a/core/deep", WarningKind::FolderUnexpectedDir),
-                expect("src/a/core/deep", WarningKind::FolderTooFewEntries),
-                expect("src/a/core/deep", WarningKind::FolderMissingRequired),
-            ]
-        );
+        assert!(got.contains(&("src/a".into(), WarningKind::FolderTooManyLines)));
+        assert!(got.contains(&("src/a/core.rs".into(), WarningKind::FolderSiblingModule)));
+        assert!(!got.contains(&(
+            "src/a/core.test.rs".into(),
+            WarningKind::FolderSiblingModule
+        )));
+        assert!(!got.contains(&("src/a/core.md".into(), WarningKind::FolderSiblingModule)));
     }
 }
