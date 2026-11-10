@@ -3,12 +3,14 @@
 
 preset = "rust"
 unused_allow = true
+require_allow_reason = true
 
 [[files]]
 path = "**"
-max_file_tokens = 3131
-max_file_lines = 341
-max_file_fns = 22
+max_file_tokens = 3012
+max_file_lines = 310
+max_file_fns = 20
+max_file_imports = 35
 max_fn_lines = 45
 max_fn_tokens = 480
 max_fn_depth = 3
@@ -16,8 +18,13 @@ max_fn_params = 3
 max_fn_bool_params = 1
 max_fn_cyclomatic = 21
 max_fn_cognitive = 13
-max_type_fields = 25
-max_type_methods = 17
+max_type_fields = 21
+max_type_methods = 14
+max_todos = 0
+
+[[files]]
+path = "*.md"
+max_file_tokens = 3421
 
 [[files]]
 path = "src/units/**"
@@ -30,8 +37,9 @@ unused_allow = false
 [[folder]]
 path = "src/**"
 max_files = 8
+max_total_files = 17
 max_dirs = 2
 max_depth = 4
-max_lines = 2239
-max_tokens = 17397
+max_lines = 2621
+max_tokens = 20436
 min_files = 2

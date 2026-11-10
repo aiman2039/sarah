@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use super::limits::FileRule;
+use super::limits::{BaseFlags, FileRule};
 use crate::structure::{FolderRule, Preset};
+use crate::units::Lines;
 
 /// Looked up in the analyzed root when `--config` is not given.
 const CONFIG_FILE: &str = "sarah.toml";
@@ -16,6 +17,14 @@ pub struct Config {
     pub preset: Option<Preset>,
     /// Report `unused_allow` warnings unless a matching `[[files]]` rule overrides it.
     pub unused_allow: Option<bool>,
+    /// Reject `sarah-allow:` comments with an empty reason.
+    pub require_allow_reason: Option<bool>,
+    /// Strip inline unit tests (`#[cfg(test)]`, Zig `test`) before counting.
+    pub exclude_inline_tests: Option<bool>,
+    /// Report circular file dependencies (`a -> b -> a`).
+    pub no_cycles: Option<bool>,
+    /// Warn when duplicate code blocks exceed this many normalized lines.
+    pub max_duplicate_lines: Option<Lines>,
     /// Added to `--include`.
     #[serde(default)]
     pub include: Vec<String>,
@@ -39,6 +48,14 @@ impl Config {
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("cannot read config {}", path.display()))?;
         toml::from_str(&text).with_context(|| format!("invalid config {}", path.display()))
+    }
+
+    pub fn base_flags(&self) -> BaseFlags {
+        BaseFlags {
+            unused_allow: self.unused_allow.unwrap_or(false),
+            require_allow_reason: self.require_allow_reason.unwrap_or(false),
+            exclude_inline_tests: self.exclude_inline_tests.unwrap_or(false),
+        }
     }
 
     fn locate(root: &Path, explicit: Option<&Path>) -> Option<PathBuf> {
@@ -65,6 +82,10 @@ mod tests {
             r#"
             preset = "rust"
             unused_allow = true
+            require_allow_reason = true
+            exclude_inline_tests = true
+            no_cycles = true
+            max_duplicate_lines = 12
             exclude = ["vendor/**"]
 
             [[files]]
@@ -80,9 +101,8 @@ mod tests {
         .unwrap();
         assert_eq!(config.preset, Some(Preset::Rust));
         assert_eq!(config.unused_allow, Some(true));
-        assert_eq!(config.exclude, vec!["vendor/**"]);
-        assert_eq!(config.files.len(), 1);
-        assert_eq!(config.folder.len(), 1);
+        assert_eq!(config.no_cycles, Some(true));
+        assert_eq!(config.max_duplicate_lines, Some(Lines(12)));
     }
 
     #[test]

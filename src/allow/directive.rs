@@ -25,6 +25,7 @@ pub struct Directive {
     pub scope: Scope,
     pub kinds: Vec<WarningKind>,
     pub explicit: bool,
+    pub has_reason: bool,
 }
 
 /// A malformed or misplaced directive, reported as a `bad_allow` warning.
@@ -49,6 +50,7 @@ impl Scope {
             Self::File => &[
                 WarningKind::LargeFile,
                 WarningKind::TooManyFunctions,
+                WarningKind::TooManyImports,
                 WarningKind::LargeFunction,
                 WarningKind::DeepFunction,
                 WarningKind::TooManyParams,
@@ -56,6 +58,9 @@ impl Scope {
                 WarningKind::ComplexFunction,
                 WarningKind::LargeType,
                 WarningKind::ForbiddenImport,
+                WarningKind::CircularImport,
+                WarningKind::DuplicateCode,
+                WarningKind::TodoComment,
             ],
         }
     }
@@ -82,18 +87,19 @@ impl DirectiveHelpers {
         let problem = |message: String| AllowProblem { line, message };
         Some(
             Self::parse_body(scope, rest)
-                .map(|(kinds, explicit)| Directive {
+                .map(|(kinds, explicit, has_reason)| Directive {
                     line,
                     scope,
                     kinds,
                     explicit,
+                    has_reason,
                 })
                 .map_err(problem),
         )
     }
 
-    /// `(kinds): reason`, `: reason`; the reason may be empty but the `:` is required.
-    fn parse_body(scope: Scope, rest: &str) -> Result<(Vec<WarningKind>, bool), String> {
+    /// `(kinds): reason`, `: reason`; the reason may be empty unless `require_allow_reason` is on.
+    fn parse_body(scope: Scope, rest: &str) -> Result<(Vec<WarningKind>, bool, bool), String> {
         let (list, rest) = match rest.trim_start().strip_prefix('(') {
             Some(inner) => {
                 let (list, after) = inner
@@ -103,12 +109,18 @@ impl DirectiveHelpers {
             }
             None => (None, rest),
         };
-        if !rest.trim_start().starts_with(':') {
+        let Some(after_colon) = rest.trim_start().strip_prefix(':') else {
             return Err(
                 "missing `: <reason>` (the reason may be empty, the `:` is required)".to_string(),
             );
-        }
-        Self::parse_kinds(scope, list)
+        };
+        let reason = after_colon
+            .trim()
+            .trim_end_matches("*/")
+            .trim_end_matches("-->")
+            .trim();
+        let (kinds, explicit) = Self::parse_kinds(scope, list)?;
+        Ok((kinds, explicit, !reason.is_empty()))
     }
 
     fn parse_kinds(scope: Scope, list: Option<&str>) -> Result<(Vec<WarningKind>, bool), String> {

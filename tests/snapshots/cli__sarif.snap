@@ -118,31 +118,31 @@ expression: output
             {
               "id": "folder_bad_name",
               "shortDescription": {
-                "text": "folder_bad_name"
+                "text": "File or folder violates naming convention"
               }
             },
             {
               "id": "folder_forbidden_name",
               "shortDescription": {
-                "text": "folder_forbidden_name"
+                "text": "File or folder matches a forbidden name pattern"
               }
             },
             {
               "id": "folder_missing_required",
               "shortDescription": {
-                "text": "folder_missing_required"
+                "text": "Folder is missing a required file"
               }
             },
             {
               "id": "large_file",
               "shortDescription": {
-                "text": "large_file"
+                "text": "File exceeds token or line limit"
               }
             },
             {
               "id": "large_function",
               "shortDescription": {
-                "text": "large_function"
+                "text": "Function exceeds line or token limit"
               }
             }
           ],

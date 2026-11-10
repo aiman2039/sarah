@@ -139,6 +139,8 @@ mod tests {
             functions: None,
             types: Vec::new(),
             imports: Vec::new(),
+            comment_info: crate::count::CommentInfo::default(),
+            norm_lines: Vec::new(),
             allows: Allows::default(),
         }
     }

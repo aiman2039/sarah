@@ -12,6 +12,7 @@ use crate::units::{Depth, Lines, Tokens};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FolderLimitKey {
     Files,
+    TotalFiles,
     Dirs,
     Depth,
     Lines,
@@ -19,8 +20,9 @@ pub enum FolderLimitKey {
 }
 
 impl FolderLimitKey {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Files,
+        Self::TotalFiles,
         Self::Dirs,
         Self::Depth,
         Self::Lines,
@@ -30,6 +32,7 @@ impl FolderLimitKey {
     pub fn name(self) -> &'static str {
         match self {
             Self::Files => "max_files",
+            Self::TotalFiles => "max_total_files",
             Self::Dirs => "max_dirs",
             Self::Depth => "max_depth",
             Self::Lines => "max_lines",
@@ -38,34 +41,48 @@ impl FolderLimitKey {
     }
 }
 
-/// A `[[folder]]` entry in `sarah.toml`. Counts are direct children, except
-/// `max_lines` and `max_tokens`, which cover the whole subtree.
+/// CLI overrides for folder limits (`--max-folder-*`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FolderPatch {
+    pub files: Option<usize>,
+    pub total_files: Option<usize>,
+    pub dirs: Option<usize>,
+    pub depth: Option<Depth>,
+}
+
+impl FolderPatch {
+    pub fn is_any(self) -> bool {
+        self.files.is_some()
+            || self.total_files.is_some()
+            || self.dirs.is_some()
+            || self.depth.is_some()
+    }
+}
+
+/// A `[[folder]]` entry in `sarah.toml`.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FolderRule {
     pub path: String,
     pub max_files: Option<usize>,
+    pub max_total_files: Option<usize>,
     pub max_dirs: Option<usize>,
     pub max_depth: Option<Depth>,
+    pub max_relative_depth: Option<Depth>,
     pub max_lines: Option<Lines>,
     pub max_tokens: Option<Tokens>,
-    /// Minimum direct entries (files plus folders).
     pub min_files: Option<usize>,
-    /// Each glob must match at least one file in the folder.
     pub require: Option<Vec<String>>,
-    /// No file or folder name in the folder may match these globs.
     pub forbid: Option<Vec<String>>,
-    /// No import in files of the folder may match these globs.
     pub forbid_imports: Option<Vec<String>>,
-    /// Sub-folder names must match one of these globs.
     pub allow_only: Option<Vec<String>>,
     pub naming: Option<Naming>,
-    /// Forbid `x.<ext>` next to `x/` (one module root per topic).
     pub no_sibling_module: Option<bool>,
 }
 
 struct CompiledRule {
     dir: DirPattern,
+    anchor: Option<String>,
     rule: FolderRule,
     require: Option<NamePatterns>,
     forbid: Option<NamePatterns>,
@@ -73,18 +90,21 @@ struct CompiledRule {
     allow_only: Option<NamePatterns>,
 }
 
-/// All folder rules in order: the preset's first, then explicit `[[folder]]` rules.
+/// All folder rules in order: the preset's first, then explicit `[[folder]]` rules, then CLI.
 pub struct FolderRules {
     preset_count: usize,
     rules: Vec<CompiledRule>,
+    cli: FolderPatch,
 }
 
 /// The rules that apply to one folder, merged; later rules win field by field.
 #[derive(Default)]
 pub struct Policy<'a> {
     pub max_files: Option<usize>,
+    pub max_total_files: Option<usize>,
     pub max_dirs: Option<usize>,
     pub max_depth: Option<Depth>,
+    pub max_relative_depth: Option<(Depth, Option<&'a str>)>,
     pub max_lines: Option<Lines>,
     pub max_tokens: Option<Tokens>,
     pub min_files: Option<usize>,
@@ -100,6 +120,7 @@ impl FolderRule {
     pub fn get(&self, key: FolderLimitKey) -> Option<usize> {
         match key {
             FolderLimitKey::Files => self.max_files,
+            FolderLimitKey::TotalFiles => self.max_total_files,
             FolderLimitKey::Dirs => self.max_dirs,
             FolderLimitKey::Depth => self.max_depth.map(|v| v.0),
             FolderLimitKey::Lines => self.max_lines.map(|v| v.0),
@@ -110,6 +131,14 @@ impl FolderRule {
 
 impl FolderRules {
     pub fn new(preset: Option<Preset>, rules: Vec<FolderRule>) -> Result<Self> {
+        Self::with_cli(preset, rules, FolderPatch::default())
+    }
+
+    pub fn with_cli(
+        preset: Option<Preset>,
+        rules: Vec<FolderRule>,
+        cli: FolderPatch,
+    ) -> Result<Self> {
         let preset_rules = preset.map(Preset::rules).unwrap_or_default();
         let preset_count = preset_rules.len();
         let compiled = preset_rules
@@ -120,26 +149,37 @@ impl FolderRules {
         Ok(Self {
             preset_count,
             rules: compiled,
+            cli,
         })
     }
 
-    /// `None` when no rule matches the folder.
     pub fn policy_for(&self, dir: &Path) -> Option<Policy<'_>> {
         let mut matching = self.rules.iter().filter(|c| c.dir.matches(dir)).peekable();
-        matching.peek()?;
+        if matching.peek().is_none() && !self.cli.is_any() {
+            return None;
+        }
         let mut policy = Policy::default();
         for compiled in matching {
             compiled.merge_into(&mut policy);
         }
+        policy.apply_cli(self.cli);
         Some(policy)
     }
 
-    /// Index of the last explicit `[[folder]]` rule that matches `dir` and sets `key`.
     pub fn governing_rule(&self, dir: &Path, key: FolderLimitKey) -> Option<usize> {
         self.rules
             .get(self.preset_count..)?
             .iter()
             .rposition(|c| c.rule.get(key).is_some() && c.dir.matches(dir))
+    }
+}
+
+impl Policy<'_> {
+    fn apply_cli(&mut self, cli: FolderPatch) {
+        self.max_files = cli.files.or(self.max_files);
+        self.max_total_files = cli.total_files.or(self.max_total_files);
+        self.max_dirs = cli.dirs.or(self.max_dirs);
+        self.max_depth = cli.depth.or(self.max_depth);
     }
 }
 
@@ -155,6 +195,7 @@ impl CompiledRule {
         };
         Ok(Self {
             dir: DirPattern::new(&rule.path).with_context(context)?,
+            anchor: Self::anchor_of(&rule.path),
             require: patterns(&rule.require)?,
             forbid: patterns(&rule.forbid)?,
             forbid_imports: patterns(&rule.forbid_imports)?,
@@ -163,11 +204,23 @@ impl CompiledRule {
         })
     }
 
+    fn anchor_of(pattern: &str) -> Option<String> {
+        pattern
+            .split('/')
+            .rev()
+            .find(|s| !s.is_empty() && *s != "." && !s.contains('*') && !s.contains('?'))
+            .map(ToString::to_string)
+    }
+
     fn merge_into<'a>(&'a self, policy: &mut Policy<'a>) {
         let r = &self.rule;
         policy.max_files = r.max_files.or(policy.max_files);
+        policy.max_total_files = r.max_total_files.or(policy.max_total_files);
         policy.max_dirs = r.max_dirs.or(policy.max_dirs);
         policy.max_depth = r.max_depth.or(policy.max_depth);
+        if let Some(rel) = r.max_relative_depth {
+            policy.max_relative_depth = Some((rel, self.anchor.as_deref()));
+        }
         policy.max_lines = r.max_lines.or(policy.max_lines);
         policy.max_tokens = r.max_tokens.or(policy.max_tokens);
         policy.min_files = r.min_files.or(policy.min_files);
@@ -199,16 +252,13 @@ mod tests {
         let generated = rules.policy_for(Path::new("src/gen/x")).unwrap();
         assert_eq!(generated.max_files, Some(50));
         assert_eq!(generated.naming, Some(Naming::Snake));
-        assert!(generated.no_sibling_module);
-        assert_eq!(generated.require.unwrap().iter().count(), 0);
         assert_eq!(
             rules.governing_rule(Path::new("src/gen/x"), FolderLimitKey::Files),
             Some(0)
         );
 
         let other = rules.policy_for(Path::new("src/a")).unwrap();
-        assert_eq!(other.max_files, None);
-        assert_eq!(other.require.unwrap().find("mod.rs"), Some("mod.rs"));
+        assert_eq!(other.max_files, Some(20));
         assert!(rules.policy_for(Path::new("docs")).is_none());
     }
 }

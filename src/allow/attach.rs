@@ -20,6 +20,7 @@ pub struct TrackedAllow {
     pub target: AllowTarget,
     pub kinds: Vec<WarningKind>,
     pub explicit: bool,
+    pub has_reason: bool,
 }
 
 /// The `sarah-allow` comments of one file. Item directives are also copied onto
@@ -46,6 +47,7 @@ impl Allows {
                 target: AllowTarget::File,
                 kinds: d.kinds.clone(),
                 explicit: d.explicit,
+                has_reason: d.has_reason,
             })
             .collect();
         if let Some(ast) = ast {
@@ -123,6 +125,7 @@ impl AllowHelpers {
                 target: AllowTarget::Function(func.start_line),
                 kinds: fn_kinds.clone(),
                 explicit: dir.explicit,
+                has_reason: dir.has_reason,
             });
         }
         out
@@ -143,6 +146,7 @@ impl AllowHelpers {
                 target: AllowTarget::Type(ty.start_line),
                 kinds: vec![WarningKind::LargeType],
                 explicit: dir.explicit,
+                has_reason: dir.has_reason,
             });
         }
         out

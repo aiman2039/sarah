@@ -34,21 +34,26 @@ sarah -f json > baseline.json     # save today's warnings...
 sarah --baseline baseline.json    # ...then report only new ones, or ones that got worse
 sarah --changed-since origin/main # only warnings for files changed on this branch
 sarah --diff origin/main          # show token, line and warning deltas since merge base
-sarah -f html > sarah.html        # self-contained treemap of files by size (works offline)
+sarah --watch                     # re-run whenever files change
+sarah -f html > sarah.html        # interactive treemap (complexity heatmap, search, function inspector)
 
 sarah init                        # write sarah.toml with file and folder limits at today's maximums
 sarah ratchet                     # lower those limits as the code shrinks (never raises them)
 sarah ratchet --check             # exit 1 if any limit in sarah.toml can be lowered (CI)
-sarah mcp                         # serve sarah to AI agents over MCP (stdio)
+sarah mcp                         # serve sarah to AI agents over MCP (stdio, cached)
+sarah lsp                         # serve live diagnostics to editors over LSP (stdio)
 ```
 
-A directory named like a command (`init`, `ratchet`, `mcp`) needs a path prefix: `sarah ./init`.
+A directory named like a command (`init`, `ratchet`, `mcp`, `lsp`) needs a path prefix: `sarah ./init`.
 
 Key flags: `--sort tokens|lines|name`, `-n/--top N`, `--tokenizer o200k|cl100k`,
-`--max-file-tokens 8000`, `--max-file-lines 500`, `--max-file-fns N`, `--max-fn-lines 80`,
-`--max-fn-tokens N`, `--max-fn-depth N`, `--max-fn-params N`, `--max-fn-bool-params N`,
-`--max-fn-cyclomatic N`, `--max-fn-cognitive N`, `--max-type-fields N` and
-`--max-type-methods N` (off by default unless noted), `--unused-allow`,
+`--max-file-tokens 8000`, `--max-file-lines 500`, `--max-file-fns N`, `--max-file-imports N`,
+`--max-fn-lines 80`, `--max-fn-tokens N`, `--max-fn-depth N`, `--max-fn-params N`,
+`--max-fn-bool-params N`, `--max-fn-cyclomatic N`, `--max-fn-cognitive N`,
+`--max-type-fields N`, `--max-type-methods N`, `--max-folder-files N`,
+`--max-folder-total-files N`, `--max-folder-dirs N`, `--max-folder-depth N`,
+`--max-duplicate-lines N`, `--max-todos N`, `--no-cycles`, `--unused-allow`,
+`--require-allow-reason`, `--exclude-inline-tests`,
 `-i/--include GLOB`, `-e/--exclude GLOB`, `--hidden`, `--no-functions`,
 `--no-default-excludes` (lockfiles, `*.min.js`, `*.map` and generated files are skipped by default),
 `--config FILE` (default: `<PATH>/sarah.toml` when it exists), `--no-allow` (ignore `sarah-allow` comments).
@@ -60,12 +65,11 @@ Ruby, PHP, Kotlin, Swift, Scala, Lua, Elixir, Zig, Bash. Each function has:
 
 - `depth`: the deepest chain of `if`/loop/`match`/`switch`/`try` blocks (`else if` chains count once).
 - `params`: declared parameters, without receivers (`self`, `cls`) and C's `(void)`.
-  Not reported for Elixir and Bash.
+  Not reported for Bash.
 - `cyclomatic`: McCabe, 1 + each branch, loop, `catch`, ternary, `case`/`match` arm and `&&`/`||`.
 - `cognitive`: SonarSource cognitive complexity. Each branch, loop, `switch`/`match` and
   `catch` adds 1 plus its nesting level; `else if`, `else` and each run of like boolean
-  operators (`a && b && c`) add 1. Both are close approximations from the syntax tree
-  (Elixir `case` arms are not counted in `cyclomatic`).
+  operators (`a && b && c`) add 1. Both are close approximations from the syntax tree.
 
 The table and markdown output do not show these columns; JSON has them. Their limits
 warn as `too_many_params` and `complex_function`.
@@ -175,13 +179,15 @@ can be lowered.
 
 ## MCP server: `sarah mcp`
 
-`sarah mcp` serves three tools over stdio, so an agent can ask sarah directly:
+`sarah mcp` serves five tools over stdio (backed by an in-memory file cache), so an agent can ask sarah directly:
 
 | Tool | Returns |
 |---|---|
 | `report` | The full report for `path`, as markdown (default) or JSON |
 | `warnings` | Only the warnings as JSON; `changed_since` limits them to a branch |
 | `check_file` | One file's sizes, functions (with every metric) and warnings, under the root's `sarah.toml` |
+| `diff` | File, line, token and warning deltas since `rev`, as JSON |
+| `ratchet` | Lowerable (or lowered) limits in `sarah.toml`, as JSON |
 
 Every tool takes `args`: extra CLI flags, for example `["--max-fn-lines", "60"]`.
 Paths are relative to the server's working directory. For Claude Code:

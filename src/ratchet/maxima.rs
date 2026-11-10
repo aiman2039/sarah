@@ -65,6 +65,7 @@ impl Maxima {
     fn dir_value(stats: &DirStats, key: FolderLimitKey) -> usize {
         match key {
             FolderLimitKey::Files => stats.files,
+            FolderLimitKey::TotalFiles => stats.total_files,
             FolderLimitKey::Dirs => stats.dirs,
             FolderLimitKey::Depth => stats.depth.0,
             FolderLimitKey::Lines => stats.lines.0,
@@ -81,6 +82,7 @@ impl Maxima {
             LimitKey::FileTokens => Some(file.tokens.0),
             LimitKey::FileLines => Some(file.lines.0),
             LimitKey::FileFns => file.functions.as_ref().map(Vec::len),
+            LimitKey::FileImports => Some(file.imports.len()),
             LimitKey::TypeFields | LimitKey::TypeMethods => file
                 .types
                 .iter()
@@ -121,6 +123,7 @@ impl Maxima {
         match key {
             LimitKey::FileTokens | LimitKey::FileLines => WarningKind::LargeFile,
             LimitKey::FileFns => WarningKind::TooManyFunctions,
+            LimitKey::FileImports => WarningKind::TooManyImports,
             LimitKey::FnLines | LimitKey::FnTokens => WarningKind::LargeFunction,
             LimitKey::FnDepth => WarningKind::DeepFunction,
             LimitKey::FnParams => WarningKind::TooManyParams,

@@ -5,7 +5,7 @@ use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use crate::count::Tokenizer;
 use crate::report::SortBy;
 use crate::units::{
-    Cognitive, Cyclomatic, Depth, Fields, Functions, Lines, Methods, Params, Tokens,
+    Cognitive, Cyclomatic, Depth, Fields, Functions, Imports, Lines, Methods, Params, Tokens,
 };
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -40,6 +40,8 @@ pub enum Command {
     Ratchet(RatchetArgs),
     /// Serve sarah to AI agents over the Model Context Protocol (stdio)
     Mcp,
+    /// Serve live diagnostics to editors over the Language Server Protocol (stdio)
+    Lsp,
 }
 
 /// What to walk and how to measure it; shared by every command.
@@ -88,6 +90,90 @@ pub struct RatchetArgs {
     pub check: bool,
 }
 
+/// Folder-structure CLI overrides (`--max-folder-*`).
+#[derive(ClapArgs, Debug, Clone, Copy, Default)]
+pub struct FolderLimitArgs {
+    /// Warn on folders with more direct files than this [default: off]
+    #[arg(long = "max-folder-files")]
+    pub files: Option<usize>,
+
+    /// Warn on folders with more total subtree files than this [default: off]
+    #[arg(long = "max-folder-total-files")]
+    pub total_files: Option<usize>,
+
+    /// Warn on folders with more direct sub-folders than this [default: off]
+    #[arg(long = "max-folder-dirs")]
+    pub subdirs: Option<usize>,
+
+    /// Warn on folder hierarchies deeper than this [default: off]
+    #[arg(long = "max-folder-depth")]
+    pub depth: Option<Depth>,
+}
+
+/// Cross-file, hygiene and execution flags.
+#[derive(ClapArgs, Debug, Clone, Default)]
+pub struct HygieneArgs {
+    /// Warn on duplicate code blocks over this many normalized lines [default: off]
+    #[arg(long)]
+    pub max_duplicate_lines: Option<Lines>,
+
+    /// Warn on files with more TODO/FIXME/HACK/XXX comments than this [default: off]
+    #[arg(long)]
+    pub max_todos: Option<usize>,
+
+    /// Warn on circular file imports (`a -> b -> a`)
+    #[arg(long)]
+    pub no_cycles: bool,
+
+    /// Warn when a `sarah-allow` comment suppresses no warning
+    #[arg(long)]
+    pub unused_allow: bool,
+
+    /// Require a non-empty reason after `:` in `sarah-allow` comments
+    #[arg(long)]
+    pub require_allow_reason: bool,
+
+    /// Strip inline unit tests (`#[cfg(test)]`, Zig `test`) before counting
+    #[arg(long)]
+    pub exclude_inline_tests: bool,
+
+    /// Re-run and print the report whenever files change
+    #[arg(long)]
+    pub watch: bool,
+}
+
+/// Function-level CLI overrides (`--max-fn-*`).
+#[derive(ClapArgs, Debug, Clone, Copy, Default)]
+pub struct FnLimitArgs {
+    /// [default: 80]
+    #[arg(id = "fn_lines", long = "max-fn-lines")]
+    pub lines: Option<Lines>,
+
+    /// Warn on functions over this many tokens [default: off]
+    #[arg(id = "fn_tokens", long = "max-fn-tokens")]
+    pub tokens: Option<Tokens>,
+
+    /// Warn on functions nested deeper than this (if/loop/match levels) [default: off]
+    #[arg(id = "fn_depth", long = "max-fn-depth")]
+    pub depth: Option<Depth>,
+
+    /// Warn on functions with more parameters than this (`self` excluded) [default: off]
+    #[arg(id = "fn_params", long = "max-fn-params")]
+    pub params: Option<Params>,
+
+    /// Warn on functions with more boolean parameters than this [default: off]
+    #[arg(id = "fn_bool_params", long = "max-fn-bool-params")]
+    pub bool_params: Option<Params>,
+
+    /// Warn on functions over this cyclomatic complexity [default: off]
+    #[arg(id = "fn_cyclomatic", long = "max-fn-cyclomatic")]
+    pub cyclomatic: Option<Cyclomatic>,
+
+    /// Warn on functions over this cognitive complexity [default: off]
+    #[arg(id = "fn_cognitive", long = "max-fn-cognitive")]
+    pub cognitive: Option<Cognitive>,
+}
+
 /// The default command: measure, warn, report.
 #[derive(ClapArgs, Debug)]
 pub struct CheckArgs {
@@ -116,33 +202,12 @@ pub struct CheckArgs {
     #[arg(long)]
     pub max_file_fns: Option<Functions>,
 
-    /// [default: 80]
+    /// Warn on files with more imports than this [default: off]
     #[arg(long)]
-    pub max_fn_lines: Option<Lines>,
+    pub max_file_imports: Option<Imports>,
 
-    /// Warn on functions over this many tokens [default: off]
-    #[arg(long)]
-    pub max_fn_tokens: Option<Tokens>,
-
-    /// Warn on functions nested deeper than this (if/loop/match levels) [default: off]
-    #[arg(long)]
-    pub max_fn_depth: Option<Depth>,
-
-    /// Warn on functions with more parameters than this (`self` excluded) [default: off]
-    #[arg(long)]
-    pub max_fn_params: Option<Params>,
-
-    /// Warn on functions with more boolean parameters than this [default: off]
-    #[arg(long)]
-    pub max_fn_bool_params: Option<Params>,
-
-    /// Warn on functions over this cyclomatic complexity [default: off]
-    #[arg(long)]
-    pub max_fn_cyclomatic: Option<Cyclomatic>,
-
-    /// Warn on functions over this cognitive complexity [default: off]
-    #[arg(long)]
-    pub max_fn_cognitive: Option<Cognitive>,
+    #[command(flatten)]
+    pub fn_limits: FnLimitArgs,
 
     /// Warn on structs/classes with more fields than this [default: off]
     #[arg(long)]
@@ -151,6 +216,12 @@ pub struct CheckArgs {
     /// Warn on structs/classes with more methods than this [default: off]
     #[arg(long)]
     pub max_type_methods: Option<Methods>,
+
+    #[command(flatten)]
+    pub folder: FolderLimitArgs,
+
+    #[command(flatten)]
+    pub hygiene: HygieneArgs,
 
     /// Show per-folder totals in table/md output (JSON always has them)
     #[arg(long)]
@@ -167,10 +238,6 @@ pub struct CheckArgs {
     /// Show token, line and warning deltas since the merge base with this git revision
     #[arg(long, value_name = "REV")]
     pub diff: Option<String>,
-
-    /// Warn when a `sarah-allow` comment suppresses no warning
-    #[arg(long)]
-    pub unused_allow: bool,
 
     /// Ignore `sarah-allow` comments and report every warning
     #[arg(long)]

@@ -5,10 +5,14 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use serde_json::json;
 
-use super::requests::{CheckFileRequest, ReportFormat, ReportRequest, WarningsRequest};
-use crate::cli::{Args, CheckArgs};
-use crate::config::Config;
+use super::requests::{
+    CheckFileRequest, DiffRequest, RatchetToolRequest, ReportFormat, ReportRequest, WarningsRequest,
+};
+use crate::cache::ScanCache;
+use crate::cli::{Args, CheckArgs, ScanOptions};
+use crate::config::{Config, LimitPatch, LimitRules};
 use crate::count::{Analysis, AnalyzeInput, FileStats};
+use crate::ratchet::Maxima;
 use crate::report::{Report, ReportInput};
 use crate::structure::{DirNode, DirStats, FolderRules};
 use crate::units::{Depth, Lines, Tokens};
@@ -20,13 +24,14 @@ pub(super) struct ToolHelpers;
 struct SingleFileCheck<'a> {
     check: &'a CheckArgs,
     config: &'a Config,
+    cache: &'a ScanCache,
     root: &'a Path,
     real: &'a Path,
     relative: &'a Path,
 }
 
 impl ToolHelpers {
-    pub(super) fn report(request: ReportRequest) -> Result<String> {
+    pub(super) fn report(request: ReportRequest, cache: &ScanCache) -> Result<String> {
         let ReportRequest { path, format, args } = request;
         let format = match format {
             ReportFormat::Md => "md",
@@ -34,10 +39,10 @@ impl ToolHelpers {
         };
         let flags = [vec!["-f".to_string(), format.to_string()], args].concat();
         let check = Self::check_args(Self::root(path.as_deref()), &flags)?;
-        check.render(&check.report()?)
+        check.render(&check.report_with_cache(Some(cache))?)
     }
 
-    pub(super) fn warnings(request: WarningsRequest) -> Result<String> {
+    pub(super) fn warnings(request: WarningsRequest, cache: &ScanCache) -> Result<String> {
         let WarningsRequest {
             path,
             changed_since,
@@ -47,7 +52,7 @@ impl ToolHelpers {
             .map(|rev| vec!["--changed-since".to_string(), rev])
             .unwrap_or_default();
         let check = Self::check_args(Self::root(path.as_deref()), &[since, args].concat())?;
-        let report = check.report()?;
+        let report = check.report_with_cache(Some(cache))?;
         Ok(serde_json::to_string_pretty(&json!({
             "warnings": report.warnings,
             "allowed": report.allowed,
@@ -55,8 +60,49 @@ impl ToolHelpers {
         }))?)
     }
 
+    pub(super) fn diff(request: DiffRequest, cache: &ScanCache) -> Result<String> {
+        let DiffRequest { path, rev, args } = request;
+        let flags = [vec!["--diff".to_string(), rev], args].concat();
+        let check = Self::check_args(Self::root(path.as_deref()), &flags)?;
+        let report = check.report_with_cache(Some(cache))?;
+        Ok(serde_json::to_string_pretty(&json!({
+            "diff": report.diff,
+            "warnings": report.warnings,
+        }))?)
+    }
+
+    pub(super) fn ratchet(request: RatchetToolRequest, cache: &ScanCache) -> Result<String> {
+        let RatchetToolRequest { path, dry_run } = request;
+        let root = Self::root(path.as_deref());
+        let check = Self::check_args(root.clone(), &[])?;
+        let target = Config::target(&root, None);
+        let text = std::fs::read_to_string(&target)
+            .with_context(|| format!("cannot read {}; run `sarah init` first", target.display()))?;
+        let scan = check.walk.scan_cached(ScanOptions {
+            with_functions: true,
+            cli_exclude_tests: false,
+            cache: Some(cache),
+        })?;
+        let file_rules = LimitRules::new(&scan.config.files, LimitPatch::default())?;
+        let folder_rules = FolderRules::new(scan.config.preset, scan.config.folder)?;
+        let tightened = Maxima::of(&scan.files, &file_rules, &folder_rules).tighten(&text)?;
+        if !dry_run && !tightened.changes.is_empty() {
+            std::fs::write(&target, &tightened.text)?;
+        }
+        let changes: Vec<_> = tightened
+            .changes
+            .iter()
+            .map(|c| json!({ "section": c.section, "rule": c.rule, "key": c.key, "from": c.from, "to": c.to }))
+            .collect();
+        Ok(serde_json::to_string_pretty(&json!({
+            "can_lower": !changes.is_empty(),
+            "dry_run": dry_run,
+            "changes": changes,
+        }))?)
+    }
+
     /// Direct single-file check: reads only `file` and its parent folder (never walks the repo).
-    pub(super) fn check_file(request: CheckFileRequest) -> Result<String> {
+    pub(super) fn check_file(request: CheckFileRequest, cache: &ScanCache) -> Result<String> {
         let CheckFileRequest { file, root, args } = request;
         let root_arg = Self::root(root.as_deref());
         let check = Self::check_args(root_arg.clone(), &args)?;
@@ -65,6 +111,7 @@ impl ToolHelpers {
         let ctx = SingleFileCheck {
             check: &check,
             config: &config,
+            cache,
             root: &canonical_root,
             real: &real,
             relative: &relative,
@@ -116,7 +163,9 @@ impl SingleFileCheck<'_> {
         if !self.passes_walk()? {
             bail!("{}", unanalyzed());
         }
-        let Analysis::Counted(stats) = FileStats::analyze(AnalyzeInput {
+        let limits = self.check.limit_rules(self.config)?;
+        let exclude_inline_tests = limits.for_path(self.relative).exclude_inline_tests;
+        let Analysis::Counted(stats) = self.cache.analyze(AnalyzeInput {
             entry: FileEntry {
                 real: self.real.to_path_buf(),
                 display: self.relative.to_path_buf(),
@@ -124,6 +173,7 @@ impl SingleFileCheck<'_> {
             tokenizer: self.check.walk.tokenizer,
             with_functions: !self.check.no_functions,
             skip_generated: !self.check.walk.no_default_excludes,
+            exclude_inline_tests,
         }) else {
             bail!("{}", unanalyzed());
         };
@@ -132,14 +182,16 @@ impl SingleFileCheck<'_> {
 
     fn render_json(&self, stats: FileStats) -> Result<String> {
         let limits = self.check.limit_rules(self.config)?;
-        let folders = FolderRules::new(self.config.preset, self.config.folder.clone())?;
+        let folders = self.check.folder_rules(self.config)?;
         let mut report = Report::build(ReportInput {
             files: vec![stats],
             skipped: Skipped::default(),
             sort: self.check.sort,
             limits: self.check.limit_rules(self.config)?,
-            folders: FolderRules::new(self.config.preset, self.config.folder.clone())?,
+            folders: self.check.folder_rules(self.config)?,
             tokenizer: self.check.walk.tokenizer.to_string(),
+            no_cycles: false,
+            max_duplicate_lines: None,
         });
         report.warnings.retain(|w| !w.kind.is_folder());
         if let Some(parent_node) = self.read_parent_dir() {

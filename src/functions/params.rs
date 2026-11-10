@@ -1,6 +1,6 @@
 use tree_sitter::Node;
 
-use super::lang::ParamSpec;
+use super::lang::{Lang, ParamSpec};
 use super::scope::Scope;
 use crate::units::Params;
 
@@ -26,8 +26,11 @@ pub(super) struct ParamCounts {
 pub(super) struct ParamHelpers;
 
 impl ParamHelpers {
-    /// `None` when the language has no parameter table.
+    /// `None` when the language has no parameter table (Bash).
     pub(super) fn count(scope: &Scope) -> ParamCounts {
+        if scope.lang == Lang::Elixir {
+            return Self::elixir_count(scope);
+        }
         let Some(spec) = scope.grammar().params.as_ref() else {
             return ParamCounts {
                 total: None,
@@ -118,6 +121,60 @@ impl ParamHelpers {
     fn names_in(param: Node) -> usize {
         let mut cursor = param.walk();
         param.children_by_field_name("name", &mut cursor).count()
+    }
+
+    fn elixir_count(scope: &Scope) -> ParamCounts {
+        let mut cursor = scope.node.walk();
+        let Some(args) = scope
+            .node
+            .named_children(&mut cursor)
+            .find(|c| c.kind() == "arguments")
+        else {
+            return ParamCounts {
+                total: Some(Params(0)),
+                bools: Some(Params(0)),
+            };
+        };
+        let mut ac = args.walk();
+        let Some(mut head) = args.named_children(&mut ac).next() else {
+            return ParamCounts {
+                total: Some(Params(0)),
+                bools: Some(Params(0)),
+            };
+        };
+        if head.kind() == "binary_operator"
+            && let Some(left) = head.child_by_field_name("left")
+        {
+            head = left;
+        }
+        Self::elixir_head_params(scope, head)
+    }
+
+    fn elixir_head_params(scope: &Scope, head: Node) -> ParamCounts {
+        let mut hc = head.walk();
+        let Some(params) = head
+            .named_children(&mut hc)
+            .find(|c| c.kind() == "arguments")
+        else {
+            return ParamCounts {
+                total: Some(Params(0)),
+                bools: Some(Params(0)),
+            };
+        };
+        let mut pc = params.walk();
+        let items: Vec<_> = params.named_children(&mut pc).collect();
+        let bools = items
+            .iter()
+            .filter(|p| {
+                p.kind() == "binary_operator"
+                    && p.child_by_field_name("right")
+                        .is_some_and(|r| Self::is_bool_literal(scope.text(r)))
+            })
+            .count();
+        ParamCounts {
+            total: Some(Params(items.len())),
+            bools: Some(Params(bools)),
+        }
     }
 }
 

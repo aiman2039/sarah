@@ -66,7 +66,7 @@ impl ComplexityHelpers {
                 nests: false,
             };
         }
-        if g.cases.contains(&kind) {
+        if g.cases.contains(&kind) && Self::is_switch_arm(scope, node) {
             return Step {
                 cyclomatic: 1,
                 ..Step::default()
@@ -119,6 +119,17 @@ impl ComplexityHelpers {
             .next_named_sibling()
             .is_some_and(|next| next.kind().contains("if"));
         !chains && Self::else_owner_is_if(scope, node)
+    }
+
+    /// For Elixir, `stab_clause` also appears in `fn -> end`; count only `case`/`cond`/`receive` arms.
+    fn is_switch_arm(scope: &Scope, node: Node) -> bool {
+        if node.kind() != "stab_clause" {
+            return true;
+        }
+        let switches = scope.grammar().switches;
+        std::iter::successors(node.parent(), Node::parent)
+            .take(ELSE_OWNER_DEPTH)
+            .any(|anc| switches.contains(&scope.kind_of(anc)))
     }
 
     /// The nearest enclosing control-flow node is an `if` (not a `switch`, loop or `guard`).
@@ -197,6 +208,6 @@ mod tests {
     #[test]
     fn elixir_keyword_calls() {
         let src = "defmodule M do\n  def ex(a, b) do\n    if a && b do\n      case a do\n        1 -> :one\n        _ -> :other\n      end\n    else\n      :no\n    end\n  end\nend\n";
-        assert_eq!(scores("x.ex", src), vec![("ex".into(), 3, 5)]);
+        assert_eq!(scores("x.ex", src), vec![("ex".into(), 5, 5)]);
     }
 }

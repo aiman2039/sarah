@@ -2,6 +2,7 @@ use std::process::ExitCode;
 
 use super::args::{Args, Command};
 use super::output::CliOutput;
+use crate::lsp::LspServer;
 use crate::mcp::McpServer;
 
 /// Exit code for errors; 1 means "warnings with --fail-on-warn".
@@ -15,6 +16,7 @@ impl Args {
             Some(Command::Init(walk)) => walk.init(),
             Some(Command::Ratchet(ratchet)) => ratchet.run(),
             Some(Command::Mcp) => McpServer::run_stdio(),
+            Some(Command::Lsp) => LspServer::run_stdio(),
         };
         result.unwrap_or_else(|err| {
             CliOutput::print_error(&err);

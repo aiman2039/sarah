@@ -4,6 +4,7 @@ pub enum LimitKey {
     FileTokens,
     FileLines,
     FileFns,
+    FileImports,
     FnLines,
     FnTokens,
     FnDepth,
@@ -16,10 +17,11 @@ pub enum LimitKey {
 }
 
 impl LimitKey {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::FileTokens,
         Self::FileLines,
         Self::FileFns,
+        Self::FileImports,
         Self::FnLines,
         Self::FnTokens,
         Self::FnDepth,
@@ -37,6 +39,7 @@ impl LimitKey {
             Self::FileTokens => "max_file_tokens",
             Self::FileLines => "max_file_lines",
             Self::FileFns => "max_file_fns",
+            Self::FileImports => "max_file_imports",
             Self::FnLines => "max_fn_lines",
             Self::FnTokens => "max_fn_tokens",
             Self::FnDepth => "max_fn_depth",

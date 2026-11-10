@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::{Value, json};
@@ -9,10 +9,13 @@ use crate::report::{Report, Warning};
 impl Report {
     /// SARIF 2.1.0 for GitHub code scanning. `root` is the analyzed path as given.
     pub fn to_sarif(&self, root: &Path) -> serde_json::Result<String> {
-        let rules: BTreeSet<String> = self.warnings.iter().map(|w| w.kind.to_string()).collect();
-        let rules: Vec<Value> = rules
+        let mut rules_map: BTreeMap<String, &'static str> = BTreeMap::new();
+        for w in &self.warnings {
+            rules_map.insert(w.kind.to_string(), w.kind.description());
+        }
+        let rules: Vec<Value> = rules_map
             .into_iter()
-            .map(|id| json!({ "id": id, "shortDescription": { "text": id } }))
+            .map(|(id, desc)| json!({ "id": id, "shortDescription": { "text": desc } }))
             .collect();
         let results: Vec<Value> = self
             .warnings

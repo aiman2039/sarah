@@ -63,6 +63,7 @@ impl CheckArgs {
             .cloned()
             .collect();
         let root = dunce::canonicalize(&self.walk.path)?;
+        let limits = self.limit_rules(config)?;
         for rel in changed {
             if !self.walk.hidden && Self::is_hidden_rel(rel) {
                 continue;
@@ -79,6 +80,7 @@ impl CheckArgs {
                 tokenizer: self.walk.tokenizer,
                 with_functions: !self.no_functions,
                 skip_generated: !self.walk.no_default_excludes,
+                exclude_inline_tests: limits.for_path(rel).exclude_inline_tests,
             }) {
                 out.push(*stats);
             }

@@ -1,3 +1,5 @@
+use std::path::{Component, Path};
+
 use tree_sitter::Node;
 
 use super::lang::Lang;
@@ -24,7 +26,7 @@ struct ImportCollector<'a> {
 }
 
 /// Stateless helpers that extract imported module paths per file.
-pub(super) struct ImportHelpers;
+pub struct ImportHelpers;
 
 impl ImportHelpers {
     pub(super) fn extract(scope: &Scope) -> Vec<ImportRef> {
@@ -50,6 +52,86 @@ impl ImportHelpers {
 
     fn unquote(raw: &str) -> &str {
         raw.trim().trim_matches(['"', '\'', '`', '<', '>']).trim()
+    }
+
+    /// Normalize relative imports (`./`, `../`, Python `.foo`, Rust `super::`) against `file_path`.
+    pub fn resolve_relative(file_path: &Path, raw: &str) -> Option<String> {
+        if raw.starts_with("./") || raw.starts_with("../") {
+            return Self::resolve_slash(file_path, raw);
+        }
+        if raw.starts_with("super::") || raw.starts_with("self::") {
+            return Self::resolve_rust_rel(file_path, raw);
+        }
+        if raw.starts_with('.') {
+            return Self::resolve_python_dots(file_path, raw);
+        }
+        None
+    }
+
+    fn resolve_slash(file_path: &Path, raw: &str) -> Option<String> {
+        let mut parts = Self::parent_parts(file_path);
+        for seg in raw.split('/') {
+            match seg {
+                "" | "." => {}
+                ".." => {
+                    parts.pop()?;
+                }
+                other => parts.push(other),
+            }
+        }
+        (!parts.is_empty()).then(|| parts.join("/"))
+    }
+
+    fn resolve_python_dots(file_path: &Path, raw: &str) -> Option<String> {
+        let dots = raw.chars().take_while(|c| *c == '.').count();
+        let rest = raw.trim_start_matches('.');
+        let mut parts = Self::parent_parts(file_path);
+        for _ in 1..dots {
+            parts.pop()?;
+        }
+        for seg in rest.split('.').filter(|s| !s.is_empty()) {
+            parts.push(seg);
+        }
+        (!parts.is_empty()).then(|| parts.join("/"))
+    }
+
+    fn resolve_rust_rel(file_path: &Path, raw: &str) -> Option<String> {
+        let mut mods = Self::rust_module_chain(file_path);
+        for seg in raw.split("::") {
+            match seg {
+                "self" | "" => {}
+                "super" => {
+                    mods.pop()?;
+                }
+                other => mods.push(other),
+            }
+        }
+        Some(format!("crate::{}", mods.join("::")))
+    }
+
+    fn rust_module_chain(file_path: &Path) -> Vec<&str> {
+        let mut parts = Self::parent_parts(file_path);
+        if parts.first() == Some(&"src") {
+            parts.remove(0);
+        }
+        if let Some(stem) = file_path.file_stem().and_then(|s| s.to_str())
+            && !matches!(stem, "mod" | "lib" | "main")
+        {
+            parts.push(stem);
+        }
+        parts
+    }
+
+    fn parent_parts(file_path: &Path) -> Vec<&str> {
+        file_path
+            .parent()
+            .into_iter()
+            .flat_map(Path::components)
+            .filter_map(|c| match c {
+                Component::Normal(s) => s.to_str(),
+                _ => None,
+            })
+            .collect()
     }
 }
 

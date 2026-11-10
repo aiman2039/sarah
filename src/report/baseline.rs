@@ -70,7 +70,7 @@ struct SavedWarning {
 struct Sizes {
     files: HashMap<PathBuf, [usize; 3]>,
     functions: HashMap<(PathBuf, String), FnSizes>,
-    dirs: HashMap<PathBuf, [usize; 4]>,
+    dirs: HashMap<PathBuf, [usize; 5]>,
     dir_max_depth: HashMap<PathBuf, usize>,
     dir_inv_entries: HashMap<PathBuf, usize>,
 }
@@ -188,8 +188,10 @@ impl Sizes {
 
     fn add_dirs(&mut self, dirs: &[DirStats]) {
         for d in dirs {
-            self.dirs
-                .insert(d.path.clone(), [d.files, d.dirs, d.lines.0, d.tokens.0]);
+            self.dirs.insert(
+                d.path.clone(),
+                [d.files, d.total_files, d.dirs, d.lines.0, d.tokens.0],
+            );
             let entries = d.files.saturating_add(d.dirs);
             self.dir_inv_entries
                 .insert(d.path.clone(), usize::MAX.saturating_sub(entries));
@@ -219,13 +221,18 @@ impl Sizes {
                     .map(|s| s.to_vec())
             }
             WarningKind::FolderTooManyFiles
+            | WarningKind::FolderTooManyTotalFiles
             | WarningKind::FolderTooManyDirs
             | WarningKind::FolderTooManyLines
             | WarningKind::FolderTooManyTokens => self.dirs.get(&w.path).map(|s| s.to_vec()),
             WarningKind::FolderTooDeep => self.dir_max_depth.get(&w.path).map(|d| vec![*d]),
             WarningKind::FolderTooFewEntries => self.dir_inv_entries.get(&w.path).map(|e| vec![*e]),
-            WarningKind::LargeType
+            WarningKind::TooManyImports
+            | WarningKind::LargeType
             | WarningKind::ForbiddenImport
+            | WarningKind::CircularImport
+            | WarningKind::DuplicateCode
+            | WarningKind::TodoComment
             | WarningKind::FolderMissingRequired
             | WarningKind::FolderForbiddenName
             | WarningKind::FolderBadName

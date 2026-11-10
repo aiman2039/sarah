@@ -9,3 +9,4 @@ mod scan;
 mod tune;
 
 pub use args::{Args, CheckArgs};
+pub use scan::ScanOptions;

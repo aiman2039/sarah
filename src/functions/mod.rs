@@ -4,6 +4,7 @@
 mod complexity;
 mod extract;
 mod imports;
+mod inline_tests;
 mod lang;
 mod nesting;
 mod params;
@@ -11,5 +12,6 @@ mod scope;
 mod types;
 
 pub use extract::{AstHelpers, AstStats, FnStats};
-pub use imports::ImportRef;
+pub use imports::{ImportHelpers, ImportRef};
+pub use inline_tests::InlineTestHelpers;
 pub use types::TypeStats;

@@ -1,10 +1,12 @@
 mod classes;
+mod other;
 
 use std::collections::BTreeMap;
 
 use tree_sitter::Node;
 
 use self::classes::ClassHelpers;
+use self::other::OtherTypes;
 use super::lang::Lang;
 use super::scope::Scope;
 use crate::report::WarningKind;
@@ -58,7 +60,9 @@ impl TypeHelpers {
         match scope.lang {
             Lang::Rust => StructHelpers::rust_types(scope),
             Lang::Go => StructHelpers::go_types(scope),
-            Lang::Bash | Lang::Lua | Lang::Elixir => Vec::new(),
+            Lang::Zig => OtherTypes::zig_types(scope),
+            Lang::Elixir => OtherTypes::elixir_types(scope),
+            Lang::Bash | Lang::Lua => Vec::new(),
             _ => ClassHelpers::extract(scope),
         }
     }

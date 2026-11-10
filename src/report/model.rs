@@ -9,7 +9,9 @@ use super::diff::DiffSummary;
 use super::warning::{Warning, WarningKind};
 use crate::config::LimitRules;
 use crate::count::FileStats;
+use crate::duplicate::DuplicateHelpers;
 use crate::functions::FnStats;
+use crate::graph::GraphHelpers;
 use crate::structure::{DirStats, DirTree, FolderRules};
 use crate::units::{Bytes, Cognitive, Cyclomatic, Depth, LineNo, LineSpan, Lines, Params, Tokens};
 use crate::walk::Skipped;
@@ -28,6 +30,8 @@ pub struct ReportInput {
     pub limits: LimitRules,
     pub folders: FolderRules,
     pub tokenizer: String,
+    pub no_cycles: bool,
+    pub max_duplicate_lines: Option<Lines>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -192,6 +196,8 @@ impl Report {
             limits,
             folders,
             tokenizer,
+            no_cycles,
+            max_duplicate_lines,
         } = input;
         sort.apply(&mut files);
         let totals = Totals::of(&files);
@@ -202,9 +208,12 @@ impl Report {
             Warning::for_files(&files, &limits),
             Warning::for_types(&files, &limits),
             Warning::for_imports(&files, &limits, &folders),
+            Warning::for_comments(&files, &limits),
             Warning::for_functions(&functions, &limits),
             folders.check(&tree),
-            Warning::for_allow_problems(&files),
+            GraphHelpers::check_cycles(&files, no_cycles),
+            DuplicateHelpers::check(&files, max_duplicate_lines),
+            Warning::for_allow_problems(&files, &limits),
         ]
         .into_iter()
         .flatten()

@@ -188,7 +188,7 @@ pub(super) const ELIXIR: Grammar = Grammar {
     branches: &["if", "unless", "for", "with", "rescue_block", "catch_block"],
     elifs: &[],
     switches: &["case", "cond", "receive"],
-    cases: &[],
+    cases: &["stab_clause"],
     binaries: &["binary_operator"],
     params: None,
     keyword_calls: &[

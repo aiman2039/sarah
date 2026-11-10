@@ -47,3 +47,31 @@ pub struct CheckFileRequest {
     #[serde(default)]
     pub args: Vec<String>,
 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DiffRequest {
+    /// Directory to analyze (default: the server's working directory).
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Git revision to diff against, e.g. `origin/main` or `HEAD`.
+    pub rev: String,
+    /// Extra `sarah` CLI flags.
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RatchetToolRequest {
+    /// Directory whose `sarah.toml` should be checked or tightened.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Preview lowerable limits without modifying `sarah.toml` (default: true).
+    #[serde(default = "RatchetToolRequest::default_true")]
+    pub dry_run: bool,
+}
+
+impl RatchetToolRequest {
+    fn default_true() -> bool {
+        true
+    }
+}

@@ -11,19 +11,19 @@ use crate::units::LineNo;
 pub enum WarningKind {
     LargeFile,
     TooManyFunctions,
+    TooManyImports,
     LargeFunction,
     DeepFunction,
-    /// More parameters than `max_fn_params`.
     TooManyParams,
-    /// More boolean parameters than `max_fn_bool_params`.
     TooManyBoolParams,
-    /// Over `max_fn_cyclomatic` or `max_fn_cognitive`.
     ComplexFunction,
-    /// Over `max_type_fields` or `max_type_methods`.
     LargeType,
-    /// Import matches `forbid_imports`.
     ForbiddenImport,
+    CircularImport,
+    DuplicateCode,
+    TodoComment,
     FolderTooManyFiles,
+    FolderTooManyTotalFiles,
     FolderTooManyDirs,
     FolderTooDeep,
     FolderTooManyLines,
@@ -34,9 +34,7 @@ pub enum WarningKind {
     FolderBadName,
     FolderSiblingModule,
     FolderUnexpectedDir,
-    /// A malformed or misplaced `sarah-allow` comment.
     BadAllow,
-    /// A `sarah-allow` comment that suppressed no warning (when `unused_allow` is on).
     UnusedAllow,
 }
 
@@ -44,6 +42,50 @@ impl WarningKind {
     /// Folder-structure warnings (as opposed to file and function warnings).
     pub fn is_folder(self) -> bool {
         self.to_string().starts_with("folder_")
+    }
+
+    /// Human-readable rule summary for SARIF code scanning.
+    pub fn description(self) -> &'static str {
+        self.folder_description()
+            .unwrap_or_else(|| self.item_description())
+    }
+
+    fn folder_description(self) -> Option<&'static str> {
+        Some(match self {
+            Self::FolderTooManyFiles => "Folder has too many direct files",
+            Self::FolderTooManyTotalFiles => "Folder subtree has too many total files",
+            Self::FolderTooManyDirs => "Folder has too many direct sub-folders",
+            Self::FolderTooDeep => "Folder hierarchy exceeds maximum nesting depth",
+            Self::FolderTooManyLines => "Folder subtree exceeds line limit",
+            Self::FolderTooManyTokens => "Folder subtree exceeds token limit",
+            Self::FolderTooFewEntries => "Folder has fewer entries than minimum",
+            Self::FolderMissingRequired => "Folder is missing a required file",
+            Self::FolderForbiddenName => "File or folder matches a forbidden name pattern",
+            Self::FolderBadName => "File or folder violates naming convention",
+            Self::FolderSiblingModule => "File shares a name with a sibling folder",
+            Self::FolderUnexpectedDir => "Sub-folder is not in the allow_only list",
+            _ => return None,
+        })
+    }
+
+    fn item_description(self) -> &'static str {
+        match self {
+            Self::LargeFile => "File exceeds token or line limit",
+            Self::TooManyFunctions => "File declares too many functions",
+            Self::TooManyImports => "File imports too many modules",
+            Self::LargeFunction => "Function exceeds line or token limit",
+            Self::DeepFunction => "Function control-flow nesting is too deep",
+            Self::TooManyParams => "Function has too many parameters",
+            Self::TooManyBoolParams => "Function has too many boolean flag parameters",
+            Self::ComplexFunction => "Function exceeds cyclomatic or cognitive complexity limit",
+            Self::LargeType => "Struct or class has too many fields or methods",
+            Self::ForbiddenImport => "Import matches a forbidden module pattern",
+            Self::CircularImport => "Files form a circular import dependency",
+            Self::DuplicateCode => "Duplicate code block appears in multiple places",
+            Self::TodoComment => "Comment contains a forbidden marker or exceeds TODO limit",
+            Self::BadAllow => "Malformed or misplaced sarah-allow directive",
+            _ => "sarah-allow directive suppressed no warning",
+        }
     }
 }
 
