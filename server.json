@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.aiman2039/sarah",
+  "description": "Token, line and function-size metrics per file; flags refactor candidates for AI agents",
+  "version": "0.1.12",
+  "repository": { "url": "https://github.com/aiman2039/sarah", "source": "github" },
+  "websiteUrl": "https://github.com/aiman2039/sarah",
+  "packages": [
+    {
+      "registryType": "cargo",
+      "identifier": "sarah",
+      "version": "0.1.12",
+      "packageArguments": [{ "type": "positional", "value": "mcp" }],
+      "transport": { "type": "stdio" }
+    }
+  ]
+}

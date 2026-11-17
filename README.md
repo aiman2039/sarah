@@ -193,11 +193,9 @@ can be lowered.
 | `ratchet` | Lowerable (or lowered) limits in `sarah.toml`, as JSON |
 
 Every tool takes `args`: extra CLI flags, for example `["--max-fn-lines", "60"]`.
-Paths are relative to the server's working directory. For Claude Code:
+Paths are relative to the server's working directory ([setup](docs/plugins.md)).
 
-```sh
-claude mcp add sarah -- sarah mcp
-```
+mcp-name: io.github.aiman2039/sarah
 
 Symlinks: every file is counted once, keyed by its realpath. File links are followed
 when their target is inside the root; directory links are never descended (an in-root

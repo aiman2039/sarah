@@ -44,6 +44,8 @@ Guidance for AI coding agents working in this repository.
 
 - `scripts/bump-version.sh` (patch bump, no commit) → commit + push → `scripts/release.sh` triggers the Release workflow.
   `scripts/git-release.sh` does all of it in one step.
+- `scripts/bump-version.sh` also bumps `plugins/sarah/**/plugin.json` and `server.json`; Release fails if they differ
+  from `Cargo.toml`. Release also packs `sarah-<tag>-<target>.mcpb` and publishes `server.json` to the MCP Registry.
 - `action.yml` downloads `sarah-<tag>-<target>.{tar.gz,zip}` plus `SHA256SUMS.txt`; keep it in sync with
   `.github/actions/release-build/action.yml` and the build matrix in `release.yaml`.
 - The Rust version is pinned in `rust-toolchain.toml` and repeated in the workflows (`RUST_VERSION`, `toolchain:`); bump all together.

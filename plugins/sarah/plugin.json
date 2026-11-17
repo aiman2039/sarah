@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "sarah",
+  "version": "0.1.12",
+  "description": "Count tokens, lines and function sizes per file and flag refactor candidates for AI agents",
+  "author": { "name": "aiman2039", "url": "https://github.com/aiman2039" },
+  "homepage": "https://github.com/aiman2039/sarah",
+  "repository": "https://github.com/aiman2039/sarah",
+  "license": "MIT",
+  "keywords": ["tokens", "refactoring", "code-metrics", "mcp"],
+  "extensions": {
+    "com.openai": {
+      "interface": { "displayName": "sarah", "category": "Developer Tools" }
+    }
+  }
+}

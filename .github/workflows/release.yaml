@@ -51,6 +51,20 @@ jobs:
           version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
           tag="v${version}"
           git check-ref-format "refs/tags/$tag"
+          # The plugins and the MCP Registry entry pin this version (scripts/bump-version.sh).
+          python3 - "$version" <<'VERSIONS'
+          import json, sys
+          want = sys.argv[1]
+          found = {
+              "plugins/sarah/.claude-plugin/plugin.json": json.load(open("plugins/sarah/.claude-plugin/plugin.json"))["version"],
+              "plugins/sarah/plugin.json": json.load(open("plugins/sarah/plugin.json"))["version"],
+              "server.json": json.load(open("server.json"))["version"],
+              "server.json packages[0]": json.load(open("server.json"))["packages"][0]["version"],
+          }
+          bad = {k: v for k, v in found.items() if v != want}
+          if bad:
+              raise SystemExit(f"::error::Versions differ from Cargo.toml ({want}): {bad}. Run scripts/bump-version.sh.")
+          VERSIONS
           sha="$(git rev-parse HEAD)"
           # checks/security check out the workflow commit; it must be the released one.
           if [[ -n "$REQUESTED_TAG" && "$sha" != "$GITHUB_SHA" ]]; then
@@ -141,8 +155,9 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 5
-          sha256sum ./*.tar.gz ./*.zip | sed 's| \./| |' > SHA256SUMS.txt
+          # 5 archives + 5 MCP bundles.
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 10
+          sha256sum ./*.tar.gz ./*.zip ./*.mcpb | sed 's| \./| |' > SHA256SUMS.txt
           cat SHA256SUMS.txt
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             prerelease=()
@@ -156,7 +171,7 @@ jobs:
             echo "::error::Refusing to replace published release assets. Bump the version."
             exit 1
           fi
-          gh release upload "$TAG" ./*.tar.gz ./*.zip SHA256SUMS.txt --clobber
+          gh release upload "$TAG" ./*.tar.gz ./*.zip ./*.mcpb SHA256SUMS.txt --clobber
           gh release view "$TAG" --json assets > "$RUNNER_TEMP/draft-assets.json"
           python3 - "$RUNNER_TEMP/draft-assets.json" <<'ASSETS'
           import json, pathlib, sys
@@ -216,6 +231,40 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
           CARGO_HUSKY_DONT_INSTALL_HOOKS: 'true'
         run: cargo publish --locked
+
+  # Official MCP Registry (registry.modelcontextprotocol.io), via GitHub OIDC: no stored token.
+  # The registry checks the crate: its README must show "mcp-name: io.github.aiman2039/sarah".
+  publish-registry:
+    needs: [prepare, publish-crate]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.9
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          a="mcp-publisher_linux_amd64.tar.gz"
+          b="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl -fsSL -o "$a" "$b/$a"
+          curl -fsSL -o "$a.sigstore.json" "$b/$a.sigstore.json"
+          cosign verify-blob --bundle "$a.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com "$a"
+          tar -xzf "$a" mcp-publisher
+      - name: Publish server.json
+        run: |
+          set -euo pipefail
+          ./mcp-publisher validate server.json
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish server.json
 
   # Push the formula to the aiman2039/homebrew-tap repo. One-time setup: create that
   # repo and store a fine-grained PAT with contents:write on it as HOMEBREW_TAP_TOKEN.
