@@ -3,4 +3,8 @@
 # Unmaintained notices only (no CVEs).
 ignore = [
     "RUSTSEC-2020-0163", # term_size via tokei (non-optional dependency)
+    # chrono family; revisit on an rmcp, schemars or tokei upgrade.
+    "RUSTSEC-2026-0543", # chrono via rmcp and schemars
+    "RUSTSEC-2026-0555", # chrono-tz via tera, a tokei build dependency
+    "RUSTSEC-2026-0559", # chrono-tz-build via chrono-tz (build only)
 ]
