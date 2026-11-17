@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -8,27 +7,15 @@ use serde_json::json;
 use super::requests::{
     CheckFileRequest, DiffRequest, RatchetToolRequest, ReportFormat, ReportRequest, WarningsRequest,
 };
+use super::single_file::SingleFileCheck;
 use crate::cache::ScanCache;
 use crate::cli::{Args, CheckArgs, ScanOptions};
 use crate::config::{Config, LimitPatch, LimitRules};
-use crate::count::{Analysis, AnalyzeInput, FileStats};
 use crate::ratchet::Maxima;
-use crate::report::{Report, ReportInput};
-use crate::structure::{DirNode, DirStats, FolderRules};
-use crate::units::{Depth, Lines, Tokens};
-use crate::walk::{FileEntry, Skipped};
+use crate::structure::FolderRules;
 
 /// Stateless tool bodies: each parses CLI-style arguments and returns the text to send back.
 pub(super) struct ToolHelpers;
-
-struct SingleFileCheck<'a> {
-    check: &'a CheckArgs,
-    config: &'a Config,
-    cache: &'a ScanCache,
-    root: &'a Path,
-    real: &'a Path,
-    relative: &'a Path,
-}
 
 impl ToolHelpers {
     pub(super) fn report(request: ReportRequest, cache: &ScanCache) -> Result<String> {
@@ -78,9 +65,9 @@ impl ToolHelpers {
         let target = Config::target(&root, None);
         let text = std::fs::read_to_string(&target)
             .with_context(|| format!("cannot read {}; run `sarah init` first", target.display()))?;
-        let scan = check.walk.scan_cached(ScanOptions {
+        let scan = check.walk.scan_cached(&ScanOptions {
             with_functions: true,
-            cli_exclude_tests: false,
+            cli: LimitPatch::default(),
             cache: Some(cache),
         })?;
         let file_rules = LimitRules::new(&scan.config.files, LimitPatch::default())?;
@@ -149,137 +136,5 @@ impl ToolHelpers {
             bail!("subcommands are not available as MCP arguments");
         }
         Ok(parsed.check)
-    }
-}
-
-impl SingleFileCheck<'_> {
-    fn execute(&self) -> Result<String> {
-        let unanalyzed = || {
-            format!(
-                "{} was not analyzed (excluded, ignored, generated or not text)",
-                self.relative.display()
-            )
-        };
-        if !self.passes_walk()? {
-            bail!("{}", unanalyzed());
-        }
-        let limits = self.check.limit_rules(self.config)?;
-        let exclude_inline_tests = limits.for_path(self.relative).exclude_inline_tests;
-        let Analysis::Counted(stats) = self.cache.analyze(AnalyzeInput {
-            entry: FileEntry {
-                real: self.real.to_path_buf(),
-                display: self.relative.to_path_buf(),
-            },
-            tokenizer: self.check.walk.tokenizer,
-            with_functions: !self.check.no_functions,
-            skip_generated: !self.check.walk.no_default_excludes,
-            exclude_inline_tests,
-        }) else {
-            bail!("{}", unanalyzed());
-        };
-        self.render_json(*stats)
-    }
-
-    fn render_json(&self, stats: FileStats) -> Result<String> {
-        let limits = self.check.limit_rules(self.config)?;
-        let folders = self.check.folder_rules(self.config)?;
-        let mut report = Report::build(ReportInput {
-            files: vec![stats],
-            skipped: Skipped::default(),
-            sort: self.check.sort,
-            limits: self.check.limit_rules(self.config)?,
-            folders: self.check.folder_rules(self.config)?,
-            tokenizer: self.check.walk.tokenizer.to_string(),
-            no_cycles: false,
-            max_duplicate_lines: None,
-        });
-        report.warnings.retain(|w| !w.kind.is_folder());
-        if let Some(parent_node) = self.read_parent_dir() {
-            let parent_rel = &parent_node.stats.path;
-            report.warnings.extend(
-                folders
-                    .check_single_dir(&parent_node)
-                    .into_iter()
-                    .filter(|w| w.path == self.relative || &w.path == parent_rel),
-            );
-        }
-        if !self.check.no_allow {
-            report.apply_allows(&limits);
-        }
-        let Some(file_out) = report.files.first() else {
-            bail!("missing file stats");
-        };
-        Ok(serde_json::to_string_pretty(&json!({
-            "file": file_out,
-            "warnings": report.warnings,
-        }))?)
-    }
-
-    fn read_parent_dir(&self) -> Option<DirNode> {
-        let parent_real = self.real.parent()?;
-        let parent_rel = match self.relative.parent() {
-            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
-            _ => PathBuf::from("."),
-        };
-        let depth = if parent_rel == Path::new(".") {
-            Depth(0)
-        } else {
-            Depth(parent_rel.components().count())
-        };
-        let (file_names, dir_names) = self.scan_dir_entries(parent_real)?;
-        Some(DirNode {
-            stats: DirStats {
-                path: parent_rel,
-                depth,
-                files: file_names.len(),
-                dirs: dir_names.len(),
-                total_files: file_names.len(),
-                lines: Lines(0),
-                tokens: Tokens(0),
-            },
-            file_names,
-            dir_names,
-        })
-    }
-
-    fn scan_dir_entries(&self, parent_real: &Path) -> Option<(Vec<String>, BTreeSet<String>)> {
-        let mut file_names = Vec::new();
-        let mut dir_names = BTreeSet::new();
-        for entry in std::fs::read_dir(parent_real).ok()?.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !self.check.walk.hidden && name.starts_with('.') {
-                continue;
-            }
-            let Ok(ft) = entry.file_type() else {
-                continue;
-            };
-            if ft.is_dir() {
-                dir_names.insert(name);
-            } else if ft.is_file()
-                && self
-                    .check
-                    .walk
-                    .accepts_file(self.root, self.config, &entry.path())
-                    .unwrap_or(false)
-            {
-                file_names.push(name);
-            }
-        }
-        file_names.sort();
-        Some((file_names, dir_names))
-    }
-
-    fn passes_walk(&self) -> Result<bool> {
-        if !self.check.walk.hidden
-            && self
-                .relative
-                .components()
-                .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
-        {
-            return Ok(false);
-        }
-        self.check
-            .walk
-            .accepts_file(self.root, self.config, self.real)
     }
 }

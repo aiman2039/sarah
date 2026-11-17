@@ -5,7 +5,7 @@ use std::path::{Component, Path};
 use comfy_table::{Table, presets::UTF8_FULL_CONDENSED};
 
 use crate::count::FileStats;
-use crate::report::model::{Report, Totals};
+use crate::report::{Report, Totals};
 use crate::structure::DirStats;
 
 impl Report {

@@ -7,12 +7,16 @@ mod duplicate;
 mod functions;
 mod git;
 mod graph;
+mod lang;
+mod lines;
 mod lsp;
 mod mcp;
 mod ratchet;
+mod render;
 mod report;
 mod structure;
 mod units;
+mod visibility;
 mod walk;
 
 use std::process::ExitCode;

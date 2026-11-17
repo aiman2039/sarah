@@ -6,7 +6,8 @@ use rayon::prelude::*;
 use super::args::WalkArgs;
 use crate::cache::ScanCache;
 use crate::config::{Config, LimitPatch, LimitRules};
-use crate::count::{Analysis, AnalyzeInput, FileStats};
+use crate::count::{Analysis, AnalysisRun, AnalyzeInput, FileStats};
+use crate::structure::FolderRules;
 use crate::walk::{FileEntry, Skipped, Walk, WalkFilters, WalkOptions};
 
 /// `(realpath, (mtime_nanos, byte_len))` for `--watch` change detection.
@@ -22,8 +23,16 @@ pub struct Scan {
 #[derive(Clone, Copy)]
 pub struct ScanOptions<'a> {
     pub with_functions: bool,
-    pub cli_exclude_tests: bool,
+    /// CLI limits and switches, applied after `sarah.toml` (as in the report).
+    pub cli: LimitPatch,
     pub cache: Option<&'a ScanCache>,
+}
+
+/// What decides the analysis of each walked path.
+struct ScanRules {
+    limits: LimitRules,
+    /// A `[[folder]]` rule sets a test ratio, so every file's inline tests are measured.
+    folder_test_ratio: bool,
 }
 
 /// Include/exclude globs from the CLI plus `sarah.toml`.
@@ -35,26 +44,24 @@ struct Globs {
 impl WalkArgs {
     /// Load config, walk, and measure every file in parallel.
     pub fn scan(&self, with_functions: bool) -> Result<Scan> {
-        self.scan_cached(ScanOptions {
+        self.scan_cached(&ScanOptions {
             with_functions,
-            cli_exclude_tests: false,
+            cli: LimitPatch::default(),
             cache: None,
         })
     }
 
-    pub fn scan_cached(&self, opts: ScanOptions<'_>) -> Result<Scan> {
+    pub fn scan_cached(&self, opts: &ScanOptions<'_>) -> Result<Scan> {
         let config = Config::load(&self.path, self.config.as_deref())?;
-        let rules = LimitRules::with_base(
-            &config.files,
-            config.base_flags(),
-            LimitPatch {
-                exclude_inline_tests: opts.cli_exclude_tests.then_some(true),
-                ..LimitPatch::default()
-            },
-        )?;
+        let rules = ScanRules {
+            limits: LimitRules::with_base(&config.files, config.base_flags(), opts.cli)?,
+            folder_test_ratio: FolderRules::new(config.preset, config.folder.clone())?
+                .has_test_ratio(),
+        };
         let globs = self.globs(&config);
         let Walk { files, mut skipped } = Walk::collect(&self.path, &self.walk_options(&globs))?;
-        let files = self.analyze_in_parallel(files, opts, (&rules, &mut skipped));
+        let analyses = self.analyze_in_parallel(files, opts, &rules);
+        let files = Self::keep_counted(analyses, &mut skipped);
         Ok(Scan {
             config,
             files,
@@ -106,32 +113,32 @@ impl WalkArgs {
     fn analyze_in_parallel(
         &self,
         entries: Vec<FileEntry>,
-        opts: ScanOptions<'_>,
-        ctx: (&LimitRules, &mut Skipped),
-    ) -> Vec<FileStats> {
-        let (rules, skipped) = ctx;
-        let ScanOptions {
-            with_functions,
-            cache,
-            ..
-        } = opts;
-        let analyses: Vec<Analysis> = entries
+        opts: &ScanOptions<'_>,
+        rules: &ScanRules,
+    ) -> Vec<Analysis> {
+        let run = AnalysisRun {
+            tokenizer: self.tokenizer,
+            with_functions: opts.with_functions,
+            skip_generated: !self.no_default_excludes,
+        };
+        entries
             .into_par_iter()
             .map(|entry| {
-                let exclude_inline_tests = rules.for_path(&entry.display).exclude_inline_tests;
                 let input = AnalyzeInput {
+                    run,
+                    rules: (rules.limits).analysis_for(&entry.display, rules.folder_test_ratio),
                     entry,
-                    tokenizer: self.tokenizer,
-                    with_functions,
-                    skip_generated: !self.no_default_excludes,
-                    exclude_inline_tests,
                 };
-                match cache {
+                match opts.cache {
                     Some(c) => c.analyze(input),
                     None => FileStats::analyze(input),
                 }
             })
-            .collect();
+            .collect()
+    }
+
+    /// Counted files; generated ones are added to `skipped`.
+    fn keep_counted(analyses: Vec<Analysis>, skipped: &mut Skipped) -> Vec<FileStats> {
         let mut files = Vec::with_capacity(analyses.len());
         for analysis in analyses {
             match analysis {

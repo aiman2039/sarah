@@ -25,6 +25,14 @@ pub struct Config {
     pub no_cycles: Option<bool>,
     /// Warn when duplicate code blocks exceed this many normalized lines.
     pub max_duplicate_lines: Option<Lines>,
+    /// Path globs, lowest layer first; a file must not import a file of a higher layer.
+    #[serde(default)]
+    pub layers: Vec<String>,
+    /// Report code files that no file imports and that are not entry points.
+    pub orphan_files: Option<bool>,
+    /// Path globs added to the built-in entry points for `orphan_files`.
+    #[serde(default)]
+    pub entry_points: Vec<String>,
     /// Added to `--include`.
     #[serde(default)]
     pub include: Vec<String>,
@@ -37,6 +45,8 @@ pub struct Config {
     /// Folder-structure rules; later matches override earlier ones field by field.
     #[serde(default)]
     pub folder: Vec<FolderRule>,
+    /// Globs of test files for `min_test_ratio`/`max_test_ratio`; replaces the default list.
+    pub test_paths: Option<Vec<String>>,
 }
 
 impl Config {

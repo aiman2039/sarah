@@ -1,19 +1,46 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use globset::{Glob, GlobBuilder, GlobMatcher};
+use globset::{Glob, GlobBuilder, GlobMatcher, GlobSet, GlobSetBuilder};
+
+/// Test files: the default `test_paths`, and entry points for the orphan rule.
+pub const DEFAULT_TEST_GLOBS: &[&str] = &[
+    "tests/**",
+    "**/tests/**",
+    "**/test/**",
+    "**/__tests__/**",
+    "**/*_test.*",
+    "**/test_*.py",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/*Test.java",
+    "**/*Tests.cs",
+];
 
 /// Stateless glob constructors shared by file and folder rules.
 pub struct GlobHelpers;
 
 impl GlobHelpers {
     /// Path glob: `*` stays inside one path component, `**` crosses them (gitignore-style).
-    pub fn path_matcher(pattern: &str) -> Result<GlobMatcher> {
-        Ok(GlobBuilder::new(pattern)
+    pub fn path_glob(pattern: &str) -> Result<Glob> {
+        GlobBuilder::new(pattern)
             .literal_separator(true)
             .build()
-            .with_context(|| format!("invalid glob {pattern:?}"))?
-            .compile_matcher())
+            .with_context(|| format!("invalid glob {pattern:?}"))
+    }
+
+    /// One compiled `path_glob`.
+    pub fn path_matcher(pattern: &str) -> Result<GlobMatcher> {
+        Ok(Self::path_glob(pattern)?.compile_matcher())
+    }
+
+    /// Every pattern as a `path_glob`, in one set.
+    pub fn path_set<'a>(patterns: impl IntoIterator<Item = &'a str>) -> Result<GlobSet> {
+        let mut builder = GlobSetBuilder::new();
+        for pattern in patterns {
+            builder.add(Self::path_glob(pattern)?);
+        }
+        Ok(builder.build()?)
     }
 }
 

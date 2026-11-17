@@ -11,8 +11,9 @@ use crate::config::LimitRules;
 use crate::count::FileStats;
 use crate::duplicate::DuplicateHelpers;
 use crate::functions::FnStats;
-use crate::graph::GraphHelpers;
+use crate::graph::{GraphCheck, GraphHelpers, GraphRules};
 use crate::structure::{DirStats, DirTree, FolderRules};
+use crate::units::Returns;
 use crate::units::{Bytes, Cognitive, Cyclomatic, Depth, LineNo, LineSpan, Lines, Params, Tokens};
 use crate::walk::Skipped;
 
@@ -32,6 +33,20 @@ pub struct ReportInput {
     pub tokenizer: String,
     pub no_cycles: bool,
     pub max_duplicate_lines: Option<Lines>,
+    pub graph: GraphRules,
+}
+
+/// Everything the warning checks read.
+#[derive(Clone, Copy)]
+struct WarningSources<'a> {
+    files: &'a [FileStats],
+    functions: &'a [TopFn],
+    tree: &'a DirTree,
+    limits: &'a LimitRules,
+    folders: &'a FolderRules,
+    graph: &'a GraphRules,
+    no_cycles: bool,
+    max_duplicate_lines: Option<Lines>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -99,6 +114,7 @@ pub struct TopFn {
     pub bool_params: Option<Params>,
     pub cyclomatic: Cyclomatic,
     pub cognitive: Cognitive,
+    pub returns: Returns,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allow: Vec<WarningKind>,
     #[serde(skip)]
@@ -157,6 +173,7 @@ impl TopFn {
             bool_params: func.bool_params,
             cyclomatic: func.cyclomatic,
             cognitive: func.cognitive,
+            returns: func.returns,
             allow: func.allow.clone(),
             deepest_block: func.deepest_block,
             largest_block: func.largest_block,
@@ -198,31 +215,26 @@ impl Report {
             tokenizer,
             no_cycles,
             max_duplicate_lines,
+            graph,
         } = input;
         sort.apply(&mut files);
-        let totals = Totals::of(&files);
-        let by_language = Totals::by_language(&files);
         let functions = TopFn::ranked(&files);
         let tree = DirTree::build(&files);
-        let warnings = [
-            Warning::for_files(&files, &limits),
-            Warning::for_types(&files, &limits),
-            Warning::for_imports(&files, &limits, &folders),
-            Warning::for_comments(&files, &limits),
-            Warning::for_functions(&functions, &limits),
-            folders.check(&tree),
-            GraphHelpers::check_cycles(&files, no_cycles),
-            DuplicateHelpers::check(&files, max_duplicate_lines),
-            Warning::for_allow_problems(&files, &limits),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
+        let warnings = Self::warnings(&WarningSources {
+            files: &files,
+            functions: &functions,
+            tree: &tree,
+            limits: &limits,
+            folders: &folders,
+            graph: &graph,
+            no_cycles,
+            max_duplicate_lines,
+        });
         Self {
             tokenizer,
-            totals,
+            totals: Totals::of(&files),
             diff: None,
-            by_language,
+            by_language: Totals::by_language(&files),
             files,
             functions,
             directories: tree.stats(),
@@ -231,6 +243,43 @@ impl Report {
             baselined: None,
             allowed: 0,
         }
+    }
+
+    /// Every warning check, in report order.
+    fn warnings(sources: &WarningSources<'_>) -> Vec<Warning> {
+        let WarningSources {
+            files,
+            functions,
+            tree,
+            limits,
+            folders,
+            graph,
+            no_cycles,
+            max_duplicate_lines,
+        } = *sources;
+        [
+            Warning::for_files(files, limits),
+            Warning::for_types(files, limits),
+            Warning::for_imports(files, limits, folders),
+            Warning::for_allowed_imports(files, limits, folders),
+            Warning::for_comments(files, limits),
+            Warning::for_missing_tests(files, limits),
+            Warning::for_patterns(files),
+            Warning::for_functions(functions, limits),
+            folders.check(tree),
+            GraphHelpers::check(GraphCheck {
+                files,
+                limits,
+                no_cycles,
+                rules: graph,
+            }),
+            folders.check_test_ratio(files),
+            DuplicateHelpers::check(files, max_duplicate_lines),
+            Warning::for_allow_problems(files, limits),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     }
 
     fn is_zero(n: &usize) -> bool {

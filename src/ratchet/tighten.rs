@@ -120,28 +120,19 @@ impl Maxima {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::allow::Allows;
     use crate::config::{Config, LimitPatch, LimitRules};
     use crate::count::FileStats;
     use crate::structure::FolderRules;
-    use crate::units::{Bytes, Lines, Tokens};
+    use crate::units::{Lines, Tokens};
 
     fn file(path: &str, lines: usize) -> FileStats {
         FileStats {
             path: path.into(),
             language: "Rust".into(),
-            bytes: Bytes(0),
             lines: Lines(lines),
             code: Lines(lines),
-            comments: Lines(0),
-            blanks: Lines(0),
             tokens: Tokens(lines),
-            functions: None,
-            types: Vec::new(),
-            imports: Vec::new(),
-            comment_info: crate::count::CommentInfo::default(),
-            norm_lines: Vec::new(),
-            allows: Allows::default(),
+            ..FileStats::default()
         }
     }
 

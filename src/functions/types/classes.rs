@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use tree_sitter::Node;
 
 use super::{NewType, TypeStats};
-use crate::functions::lang::Lang;
-use crate::functions::scope::Scope;
+use crate::lang::Lang;
+use crate::lang::Scope;
 
 const CLASS_KINDS: &[&str] = &[
     "class_declaration",

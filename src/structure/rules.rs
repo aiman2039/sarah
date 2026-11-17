@@ -5,7 +5,9 @@ use serde::Deserialize;
 
 use super::naming::Naming;
 use super::preset::Preset;
+use super::test_ratio::TestPaths;
 use crate::config::{DirPattern, NamePatterns};
+use crate::units::RatioPercent;
 use crate::units::{Depth, Lines, Tokens};
 
 /// One `max_*` key of a `[[folder]]` rule that `sarah init` and `sarah ratchet` manage.
@@ -75,9 +77,12 @@ pub struct FolderRule {
     pub require: Option<Vec<String>>,
     pub forbid: Option<Vec<String>>,
     pub forbid_imports: Option<Vec<String>>,
+    pub allow_imports: Option<Vec<String>>,
     pub allow_only: Option<Vec<String>>,
     pub naming: Option<Naming>,
     pub no_sibling_module: Option<bool>,
+    pub min_test_ratio: Option<RatioPercent>,
+    pub max_test_ratio: Option<RatioPercent>,
 }
 
 struct CompiledRule {
@@ -87,6 +92,7 @@ struct CompiledRule {
     require: Option<NamePatterns>,
     forbid: Option<NamePatterns>,
     forbid_imports: Option<NamePatterns>,
+    allow_imports: Option<NamePatterns>,
     allow_only: Option<NamePatterns>,
 }
 
@@ -95,6 +101,8 @@ pub struct FolderRules {
     preset_count: usize,
     rules: Vec<CompiledRule>,
     cli: FolderPatch,
+    /// `test_paths` from `sarah.toml`, else the default test globs.
+    pub(super) test_paths: TestPaths,
 }
 
 /// The rules that apply to one folder, merged; later rules win field by field.
@@ -111,9 +119,12 @@ pub struct Policy<'a> {
     pub require: Option<&'a NamePatterns>,
     pub forbid: Option<&'a NamePatterns>,
     pub forbid_imports: Option<&'a NamePatterns>,
+    pub allow_imports: Option<&'a NamePatterns>,
     pub allow_only: Option<&'a NamePatterns>,
     pub naming: Option<Naming>,
     pub no_sibling_module: bool,
+    pub min_test_ratio: Option<RatioPercent>,
+    pub max_test_ratio: Option<RatioPercent>,
 }
 
 impl FolderRule {
@@ -150,6 +161,7 @@ impl FolderRules {
             preset_count,
             rules: compiled,
             cli,
+            test_paths: TestPaths::default_set()?,
         })
     }
 
@@ -166,11 +178,35 @@ impl FolderRules {
         Some(policy)
     }
 
+    /// The policy of the folder that holds `file`.
+    pub fn policy_for_file(&self, file: &Path) -> Option<Policy<'_>> {
+        self.policy_for(Self::folder_of(file))
+    }
+
+    /// The folder that holds `file`; `.` for a file in the analyzed root.
+    pub fn folder_of(file: &Path) -> &Path {
+        match file.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        }
+    }
+
+    /// Whether a folder rule sets `allow_imports`.
+    pub fn sets_allow_imports(&self) -> bool {
+        self.rules.iter().any(|c| c.allow_imports.is_some())
+    }
+
     pub fn governing_rule(&self, dir: &Path, key: FolderLimitKey) -> Option<usize> {
         self.rules
             .get(self.preset_count..)?
             .iter()
             .rposition(|c| c.rule.get(key).is_some() && c.dir.matches(dir))
+    }
+
+    /// Whether any rule sets `min_test_ratio` or `max_test_ratio`.
+    pub fn has_test_ratio(&self) -> bool {
+        (self.rules.iter())
+            .any(|c| c.rule.min_test_ratio.is_some() || c.rule.max_test_ratio.is_some())
     }
 }
 
@@ -199,6 +235,7 @@ impl CompiledRule {
             require: patterns(&rule.require)?,
             forbid: patterns(&rule.forbid)?,
             forbid_imports: patterns(&rule.forbid_imports)?,
+            allow_imports: patterns(&rule.allow_imports)?,
             allow_only: patterns(&rule.allow_only)?,
             rule,
         })
@@ -229,7 +266,10 @@ impl CompiledRule {
         policy.require = self.require.as_ref().or(policy.require);
         policy.forbid = self.forbid.as_ref().or(policy.forbid);
         policy.forbid_imports = self.forbid_imports.as_ref().or(policy.forbid_imports);
+        policy.allow_imports = self.allow_imports.as_ref().or(policy.allow_imports);
         policy.allow_only = self.allow_only.as_ref().or(policy.allow_only);
+        policy.min_test_ratio = r.min_test_ratio.or(policy.min_test_ratio);
+        policy.max_test_ratio = r.max_test_ratio.or(policy.max_test_ratio);
     }
 }
 

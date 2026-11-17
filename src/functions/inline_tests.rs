@@ -3,34 +3,31 @@ use std::path::Path;
 
 use tree_sitter::{Node, Parser};
 
-use super::lang::Lang;
+use crate::lang::Lang;
 use crate::units::{LineNo, LineSpan};
 
 /// Inline test stripping for languages that keep unit tests inside source files (Rust, Zig).
 pub struct InlineTestHelpers;
 
 impl InlineTestHelpers {
-    /// Production-only source text plus the 1-based line spans of stripped inline tests.
-    /// `None` when the language has no inline tests or the file contains none.
-    pub fn strip(path: &Path, source: &str) -> Option<(String, Vec<LineSpan>)> {
-        let lang = Lang::from_path(path)?;
-        if !matches!(lang, Lang::Rust | Lang::Zig) {
-            return None;
-        }
-        let mut parser = Parser::new();
-        parser.set_language(&lang.language()).ok()?;
-        let tree = parser.parse(source, None)?;
-        let ranges = match lang {
-            Lang::Rust => Self::rust_ranges(tree.root_node(), source),
-            Lang::Zig => Self::zig_ranges(tree.root_node()),
-            _ => Vec::new(),
+    /// Byte ranges and 1-based line spans of the file's inline tests, in source order.
+    /// Empty when the language has no inline tests or the file contains none.
+    pub fn find(path: &Path, source: &str) -> Vec<(Range<usize>, LineSpan)> {
+        let Some(lang) = Lang::from_path(path).filter(|l| matches!(l, Lang::Rust | Lang::Zig))
+        else {
+            return Vec::new();
         };
-        if ranges.is_empty() {
-            return None;
+        let mut parser = Parser::new();
+        if parser.set_language(&lang.language()).is_err() {
+            return Vec::new();
         }
-        let prod = Self::slice_without(source, &ranges);
-        let spans = ranges.into_iter().map(|(_, span)| span).collect();
-        Some((prod, spans))
+        let Some(tree) = parser.parse(source, None) else {
+            return Vec::new();
+        };
+        match lang {
+            Lang::Rust => Self::rust_ranges(tree.root_node(), source),
+            _ => Self::zig_ranges(tree.root_node()),
+        }
     }
 
     pub fn in_spans(line: LineNo, spans: &[LineSpan]) -> bool {
@@ -93,7 +90,8 @@ impl InlineTestHelpers {
         out
     }
 
-    fn slice_without(source: &str, ranges: &[(Range<usize>, LineSpan)]) -> String {
+    /// `source` without the `find` ranges: the production-only text.
+    pub fn without(source: &str, ranges: &[(Range<usize>, LineSpan)]) -> String {
         let mut out = String::with_capacity(source.len());
         let mut cursor = 0usize;
         for (range, _) in ranges {

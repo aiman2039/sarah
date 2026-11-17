@@ -25,7 +25,7 @@ impl DiffSummary {
         }
     }
 
-    pub(super) fn table_line(&self) -> String {
+    pub(crate) fn table_line(&self) -> String {
         format!(
             "Diff vs {}: {} files, {} lines ({} code), {} tokens, {} warnings\n",
             self.rev,
@@ -37,7 +37,7 @@ impl DiffSummary {
         )
     }
 
-    pub(super) fn markdown_line(&self) -> String {
+    pub(crate) fn markdown_line(&self) -> String {
         format!(
             "Diff vs `{}`: **{} files**, {} lines ({} code), **{} tokens**, **{} warnings**\n\n",
             self.rev,

@@ -109,25 +109,15 @@ impl DirTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::allow::Allows;
-    use crate::units::Bytes;
 
     fn file(path: &str, tokens: usize) -> FileStats {
         FileStats {
             path: path.into(),
             language: "Rust".into(),
-            bytes: Bytes(0),
             lines: Lines(1),
             code: Lines(1),
-            comments: Lines(0),
-            blanks: Lines(0),
             tokens: Tokens(tokens),
-            functions: None,
-            types: Vec::new(),
-            imports: Vec::new(),
-            comment_info: crate::count::CommentInfo::default(),
-            norm_lines: Vec::new(),
-            allows: Allows::default(),
+            ..FileStats::default()
         }
     }
 

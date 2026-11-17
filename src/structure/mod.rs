@@ -5,6 +5,7 @@ mod entries;
 mod naming;
 mod preset;
 mod rules;
+mod test_ratio;
 mod tree;
 
 pub use preset::Preset;

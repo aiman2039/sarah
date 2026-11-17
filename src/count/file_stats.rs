@@ -7,11 +7,14 @@ use super::comments::{CommentHelpers, CommentInfo};
 use super::generated::GeneratedHelpers;
 use super::tokenizer::Tokenizer;
 use crate::allow::Allows;
+use crate::config::{AnalysisRules, PatternHit};
 use crate::functions::{AstHelpers, AstStats, FnStats, ImportRef, InlineTestHelpers, TypeStats};
-use crate::units::{Bytes, LineSpan, Lines, Tokens};
+use crate::lines::{InlineTestLines, LengthInput, LineBreakdown, LineLengths};
+use crate::units::Items;
+use crate::units::{Bytes, LineNo, LineSpan, Lines, Tokens};
 use crate::walk::FileEntry;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct FileStats {
     pub path: PathBuf,
     pub language: String,
@@ -29,6 +32,8 @@ pub struct FileStats {
     #[serde(skip)]
     pub imports: Vec<ImportRef>,
     #[serde(skip)]
+    pub module_decls: Vec<String>,
+    #[serde(skip)]
     pub comment_info: CommentInfo,
     /// Normalized non-trivial code lines for duplicate detection: `(1-based line, trimmed)`.
     #[serde(skip)]
@@ -36,25 +41,50 @@ pub struct FileStats {
     /// File-wide `sarah-allow-file` kinds, tracked directives and malformed directives.
     #[serde(skip)]
     pub allows: Allows,
+    /// Lines matching the file's `forbid_patterns` (capped per pattern).
+    #[serde(skip)]
+    pub pattern_hits: Vec<PatternHit>,
+    /// Inline unit tests, for `require_test` and the folder test ratio; zero unless
+    /// `AnalysisRules::find_inline_tests` is on.
+    #[serde(skip)]
+    pub inline_tests: InlineTestLines,
+    /// Public API items; `None` when the language has no visibility rule.
+    #[serde(skip)]
+    pub public_items: Option<Items>,
+    /// Longest code line and the lines over `max_line_length`.
+    #[serde(skip)]
+    pub line_lengths: LineLengths,
 }
 
-pub struct AnalyzeInput {
-    pub entry: FileEntry,
+/// Switches that hold for every file of a run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AnalysisRun {
     pub tokenizer: Tokenizer,
     pub with_functions: bool,
     /// Leave out files with a generated-code header.
     pub skip_generated: bool,
-    /// Strip inline unit tests (`#[cfg(test)]`, Zig `test`) before counting.
-    pub exclude_inline_tests: bool,
+}
+
+pub struct AnalyzeInput<'a> {
+    pub entry: FileEntry,
+    pub run: AnalysisRun,
+    pub rules: AnalysisRules<'a>,
 }
 
 pub struct SourceInput<'a> {
     pub path: PathBuf,
     pub text: &'a str,
-    pub tokenizer: Tokenizer,
-    pub with_functions: bool,
-    pub skip_generated: bool,
-    pub exclude_inline_tests: bool,
+    pub run: AnalysisRun,
+    pub rules: AnalysisRules<'a>,
+}
+
+/// One non-generated file and its inline tests, ready to measure.
+struct MeasureInput<'a> {
+    source: SourceInput<'a>,
+    /// `source.text` without stripped tests (`exclude_inline_tests`).
+    measured: &'a str,
+    /// Every inline test found, stripped or not.
+    test_spans: &'a [LineSpan],
 }
 
 /// What reading one walked file gave.
@@ -68,13 +98,11 @@ pub enum Analysis {
 }
 
 impl FileStats {
-    pub fn analyze(input: AnalyzeInput) -> Analysis {
+    pub fn analyze(input: AnalyzeInput<'_>) -> Analysis {
         let AnalyzeInput {
             entry: FileEntry { real, display },
-            tokenizer,
-            with_functions,
-            skip_generated,
-            exclude_inline_tests,
+            run,
+            rules,
         } = input;
         let Ok(text) = std::fs::read_to_string(&real) else {
             return Analysis::NotText;
@@ -82,80 +110,117 @@ impl FileStats {
         Self::analyze_source(SourceInput {
             path: display,
             text: &text,
-            tokenizer,
-            with_functions,
-            skip_generated,
-            exclude_inline_tests,
+            run,
+            rules,
         })
     }
 
-    pub fn analyze_source(input: SourceInput<'_>) -> Analysis {
+    /// Inline tests are parsed only when `rules.find_inline_tests` is on, and the text is
+    /// copied without them only when `rules.exclude_inline_tests` is on.
+    pub fn analyze_source(source: SourceInput<'_>) -> Analysis {
+        if source.run.skip_generated && GeneratedHelpers::is_generated(source.text) {
+            return Analysis::Generated;
+        }
+        let tests = Self::find_tests(&source);
+        let stripped = (source.rules.exclude_inline_tests && !tests.is_empty())
+            .then(|| InlineTestHelpers::without(source.text, &tests));
+        let test_spans: Vec<LineSpan> = tests.into_iter().map(|(_, span)| span).collect();
+        Analysis::Counted(Box::new(Self::measure(MeasureInput {
+            measured: stripped.as_deref().unwrap_or(source.text),
+            source,
+            test_spans: &test_spans,
+        })))
+    }
+
+    fn find_tests(source: &SourceInput<'_>) -> Vec<(std::ops::Range<usize>, LineSpan)> {
+        if !source.rules.find_inline_tests || !source.text.contains("test") {
+            return Vec::new();
+        }
+        InlineTestHelpers::find(&source.path, source.text)
+    }
+
+    /// Every measurement of one non-generated file.
+    fn measure(input: MeasureInput<'_>) -> Self {
+        let MeasureInput {
+            source,
+            measured,
+            test_spans,
+        } = input;
         let SourceInput {
             path,
             text,
-            tokenizer,
-            with_functions,
-            skip_generated,
-            exclude_inline_tests,
-        } = input;
-        if skip_generated && GeneratedHelpers::is_generated(text) {
-            return Analysis::Generated;
-        }
-        let stripped = exclude_inline_tests
-            .then(|| InlineTestHelpers::strip(&path, text))
-            .flatten();
-        let measured = stripped.as_ref().map_or(text, |(prod, _)| prod.as_str());
-        let test_spans = stripped
-            .as_ref()
-            .map_or(&[][..], |(_, spans)| spans.as_slice());
-
+            run,
+            rules,
+        } = source;
         let lang = LanguageType::from_path(&path, &Config::default());
-        let LineBreakdown {
-            code,
-            comments,
-            blanks,
-        } = LineBreakdown::of(lang, measured);
-        let (functions, types, imports, allows) =
-            Self::ast_and_allows((&path, text), (tokenizer, with_functions), test_spans);
-        Analysis::Counted(Box::new(Self {
+        let skip = rules.stripped(test_spans);
+        let breakdown = LineBreakdown::of(lang, measured);
+        let (ast, allows) = Self::ast_and_allows((&path, text), run, skip);
+        Self {
             language: lang.map_or("Other".to_string(), |l| l.name().to_string()),
             bytes: Bytes(measured.len()),
             lines: Lines(measured.lines().count()),
-            code,
-            comments,
-            blanks,
-            tokens: tokenizer.count(measured),
-            functions,
-            types,
-            imports,
+            code: breakdown.code,
+            comments: breakdown.comments,
+            blanks: breakdown.blanks,
+            tokens: run.tokenizer.count(measured),
             comment_info: CommentHelpers::scan(&path, measured),
-            norm_lines: Self::normalized_lines(&path, text, test_spans),
-            allows,
+            norm_lines: Self::normalized_lines(&path, text, skip),
+            pattern_hits: (rules.forbid_patterns).map_or_else(Vec::new, |p| p.scan(text, skip)),
+            inline_tests: InlineTestLines {
+                code: InlineTestLines::code_in(lang, text, test_spans),
+                stripped: rules.exclude_inline_tests,
+            },
+            line_lengths: LineLengths::measure(LengthInput {
+                lang,
+                text,
+                skip,
+                max: rules.max_line_length,
+            }),
             path,
-        }))
+            ..Self::from_ast(ast, allows)
+        }
     }
 
+    /// The fields read from the syntax tree, plus `allows`; the rest stay default.
+    fn from_ast(ast: Option<AstStats>, allows: Allows) -> Self {
+        let Some(ast) = ast else {
+            return Self {
+                allows,
+                ..Self::default()
+            };
+        };
+        Self {
+            functions: Some(ast.functions),
+            types: ast.types,
+            imports: ast.imports,
+            module_decls: ast.module_decls,
+            public_items: ast.public_items,
+            allows,
+            ..Self::default()
+        }
+    }
+
+    /// The syntax tree (`None` without function extraction) and the `sarah-allow` comments,
+    /// both without the stripped tests in `skip`.
     fn ast_and_allows(
         src: (&Path, &str),
-        opts: (Tokenizer, bool),
-        test_spans: &[LineSpan],
-    ) -> (Option<Vec<FnStats>>, Vec<TypeStats>, Vec<ImportRef>, Allows) {
+        run: AnalysisRun,
+        skip: &[LineSpan],
+    ) -> (Option<AstStats>, Allows) {
         let (path, text) = src;
-        let (tokenizer, with_functions) = opts;
-        let mut ast = with_functions
-            .then(|| AstStats::extract(path, text, tokenizer))
+        let mut ast = run
+            .with_functions
+            .then(|| AstStats::extract(path, text, run.tokenizer))
             .flatten();
-        Self::drop_test_ast(ast.as_mut(), test_spans);
+        Self::drop_test_ast(ast.as_mut(), skip);
         let mut allows = if AstHelpers::is_code_file(path) {
             Allows::scan(text, ast.as_mut())
         } else {
             Allows::default()
         };
-        Self::drop_test_allows(&mut allows, test_spans);
-        match ast {
-            Some(ast) => (Some(ast.functions), ast.types, ast.imports, allows),
-            None => (None, Vec::new(), Vec::new(), allows),
-        }
+        Self::drop_test_allows(&mut allows, skip);
+        (ast, allows)
     }
 
     fn drop_test_ast(ast: Option<&mut AstStats>, spans: &[LineSpan]) {
@@ -191,7 +256,7 @@ impl FileStats {
             .enumerate()
             .filter_map(|(idx, raw)| {
                 let line_no = idx.saturating_add(1);
-                if InlineTestHelpers::in_spans(crate::units::LineNo(line_no), spans) {
+                if InlineTestHelpers::in_spans(LineNo(line_no), spans) {
                     return None;
                 }
                 let t = raw.trim();
@@ -201,31 +266,5 @@ impl FileStats {
                 (!is_comment && t.len() >= 6).then(|| (line_no, t.to_string()))
             })
             .collect()
-    }
-}
-
-/// Code/comment/blank split: tokei for known languages, blank-vs-other otherwise.
-struct LineBreakdown {
-    code: Lines,
-    comments: Lines,
-    blanks: Lines,
-}
-
-impl LineBreakdown {
-    fn of(lang: Option<LanguageType>, text: &str) -> Self {
-        let Some(lang) = lang else {
-            let blanks = text.lines().filter(|l| l.trim().is_empty()).count();
-            return Self {
-                code: Lines(text.lines().count().saturating_sub(blanks)),
-                comments: Lines(0),
-                blanks: Lines(blanks),
-            };
-        };
-        let s = lang.parse_from_str(text, &Config::default()).summarise();
-        Self {
-            code: Lines(s.code),
-            comments: Lines(s.comments),
-            blanks: Lines(s.blanks),
-        }
     }
 }

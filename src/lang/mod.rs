@@ -1,16 +1,19 @@
-//! Supported languages: file extensions, grammars, tags queries and node-kind tables.
+//! Supported languages: file extensions, grammars, tags queries, node-kind tables and the
+//! per-function `Scope` every metric walks.
 
 mod grammar;
+mod scope;
 mod tags;
 
 use std::path::Path;
 
 use tree_sitter::{Language, Node};
 
-pub(super) use grammar::{Grammar, ParamSpec};
+pub(crate) use grammar::{Grammar, ParamSpec};
+pub(crate) use scope::Scope;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Lang {
+pub(crate) enum Lang {
     Rust,
     Python,
     JavaScript,
@@ -33,7 +36,7 @@ pub(super) enum Lang {
 }
 
 impl Lang {
-    pub(super) const ALL: [Self; 19] = [
+    pub(crate) const ALL: [Self; 19] = [
         Self::Rust,
         Self::Python,
         Self::JavaScript,
@@ -55,7 +58,7 @@ impl Lang {
         Self::Bash,
     ];
 
-    pub(super) fn from_path(path: &Path) -> Option<Self> {
+    pub(crate) fn from_path(path: &Path) -> Option<Self> {
         match path.extension()?.to_str()? {
             "rs" => Some(Self::Rust),
             "py" | "pyi" => Some(Self::Python),
@@ -80,7 +83,7 @@ impl Lang {
         }
     }
 
-    pub(super) fn language(self) -> Language {
+    pub(crate) fn language(self) -> Language {
         match self {
             Self::Rust => tree_sitter_rust::LANGUAGE.into(),
             Self::Python => tree_sitter_python::LANGUAGE.into(),
@@ -106,7 +109,7 @@ impl Lang {
 
     /// The node's kind, except that a call to a control-flow keyword (Elixir's `if`, `case`,
     /// ...) reads as the keyword, so the kind tables can name it.
-    pub(super) fn kind_of<'a>(self, node: Node<'a>, source: &'a str) -> &'a str {
+    pub(crate) fn kind_of<'a>(self, node: Node<'a>, source: &'a str) -> &'a str {
         let calls = self.grammar().keyword_calls;
         if calls.is_empty() || node.kind() != "call" {
             return node.kind();

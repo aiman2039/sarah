@@ -1,6 +1,6 @@
 use tree_sitter::Node;
 
-use super::scope::Scope;
+use crate::lang::Scope;
 use crate::units::{Depth, LineNo, LineSpan, Lines};
 
 /// Control-flow nesting summary for one function.

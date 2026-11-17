@@ -63,7 +63,8 @@ expression: output
           "depth": 0,
           "params": 1,
           "cyclomatic": 1,
-          "cognitive": 0
+          "cognitive": 0,
+          "returns": 0
         },
         {
           "name": "short_one",
@@ -75,7 +76,8 @@ expression: output
           "depth": 0,
           "params": 0,
           "cyclomatic": 1,
-          "cognitive": 0
+          "cognitive": 0,
+          "returns": 0
         }
       ]
     },
@@ -99,7 +101,8 @@ expression: output
           "depth": 0,
           "params": 1,
           "cyclomatic": 1,
-          "cognitive": 0
+          "cognitive": 0,
+          "returns": 1
         },
         {
           "name": "run",
@@ -111,7 +114,8 @@ expression: output
           "depth": 0,
           "params": 0,
           "cyclomatic": 1,
-          "cognitive": 0
+          "cognitive": 0,
+          "returns": 1
         }
       ]
     },
@@ -135,7 +139,8 @@ expression: output
           "depth": 0,
           "params": 2,
           "cyclomatic": 1,
-          "cognitive": 0
+          "cognitive": 0,
+          "returns": 1
         }
       ]
     }
@@ -152,7 +157,8 @@ expression: output
       "depth": 0,
       "params": 1,
       "cyclomatic": 1,
-      "cognitive": 0
+      "cognitive": 0,
+      "returns": 0
     },
     {
       "path": "web/app.ts",
@@ -165,7 +171,8 @@ expression: output
       "depth": 0,
       "params": 2,
       "cyclomatic": 1,
-      "cognitive": 0
+      "cognitive": 0,
+      "returns": 1
     },
     {
       "path": "tool.py",
@@ -178,7 +185,8 @@ expression: output
       "depth": 0,
       "params": 1,
       "cyclomatic": 1,
-      "cognitive": 0
+      "cognitive": 0,
+      "returns": 1
     },
     {
       "path": "src/big.rs",
@@ -191,7 +199,8 @@ expression: output
       "depth": 0,
       "params": 0,
       "cyclomatic": 1,
-      "cognitive": 0
+      "cognitive": 0,
+      "returns": 0
     },
     {
       "path": "tool.py",
@@ -204,7 +213,8 @@ expression: output
       "depth": 0,
       "params": 0,
       "cyclomatic": 1,
-      "cognitive": 0
+      "cognitive": 0,
+      "returns": 1
     }
   ],
   "directories": [

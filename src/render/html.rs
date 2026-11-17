@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use super::common::RenderHelpers;
 use crate::count::FileStats;
-use crate::report::model::Report;
+use crate::report::Report;
 
 /// A self-contained page: the treemap script and styles are inline, so it works offline.
 const TEMPLATE: &str = include_str!("treemap.html");
