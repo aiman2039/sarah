@@ -15,6 +15,8 @@ case "${1:-all}" in
     test) cargo test --all-features --locked ;;
     # sarah on its own code: any warning over sarah.toml / the default limits fails.
     sarah) cargo run --quiet --locked -- . --fail-on-warn --top 5 ;;
+    # Plugin manifests and server.json must carry the Cargo.toml version.
+    versions) bash scripts/sync-versions.sh --check ;;
     audit)
         need_plugin audit
         cargo audit
@@ -24,9 +26,9 @@ case "${1:-all}" in
         cargo deny check advisories bans licenses sources
         ;;
     all)
-        for check in fmt clippy test sarah audit deny; do
+        for check in fmt clippy test sarah versions audit deny; do
             sh "$0" "$check"
         done
         ;;
-    *) echo "Usage: $0 [all|fmt|clippy|test|sarah|audit|deny]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [all|fmt|clippy|test|sarah|versions|audit|deny]" >&2; exit 2 ;;
 esac

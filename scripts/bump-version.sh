@@ -16,9 +16,7 @@ awk -v old="$old" -v new="$new" '
     { print }
 ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
 # The plugins and the MCP Registry entry pin the same version (release.yaml checks it).
-for f in plugins/sarah/.claude-plugin/plugin.json plugins/sarah/plugin.json server.json; do
-    sed "s/\"version\": \"$old\"/\"version\": \"$new\"/" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-done
+bash scripts/sync-versions.sh
 CARGO_HUSKY_DONT_INSTALL_HOOKS=true cargo update --workspace --offline --quiet
 
 echo "Bumped $old -> $new" >&2
