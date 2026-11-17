@@ -1,6 +1,6 @@
 {
   "name": "sarah",
-  "version": "0.1.12",
+  "version": "0.1.14",
   "description": "Count tokens, lines and function sizes per file and flag refactor candidates for AI agents",
   "author": { "name": "aiman2039", "url": "https://github.com/aiman2039" },
   "homepage": "https://github.com/aiman2039/sarah",

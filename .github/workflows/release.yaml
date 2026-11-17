@@ -51,20 +51,8 @@ jobs:
           version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
           tag="v${version}"
           git check-ref-format "refs/tags/$tag"
-          # The plugins and the MCP Registry entry pin this version (scripts/bump-version.sh).
-          python3 - "$version" <<'VERSIONS'
-          import json, sys
-          want = sys.argv[1]
-          found = {
-              "plugins/sarah/.claude-plugin/plugin.json": json.load(open("plugins/sarah/.claude-plugin/plugin.json"))["version"],
-              "plugins/sarah/plugin.json": json.load(open("plugins/sarah/plugin.json"))["version"],
-              "server.json": json.load(open("server.json"))["version"],
-              "server.json packages[0]": json.load(open("server.json"))["packages"][0]["version"],
-          }
-          bad = {k: v for k, v in found.items() if v != want}
-          if bad:
-              raise SystemExit(f"::error::Versions differ from Cargo.toml ({want}): {bad}. Run scripts/bump-version.sh.")
-          VERSIONS
+          # The plugins and the MCP Registry entry pin this version (scripts/sync-versions.sh).
+          bash scripts/sync-versions.sh --check
           sha="$(git rev-parse HEAD)"
           # checks/security check out the workflow commit; it must be the released one.
           if [[ -n "$REQUESTED_TAG" && "$sha" != "$GITHUB_SHA" ]]; then
