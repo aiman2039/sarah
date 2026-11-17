@@ -16,6 +16,7 @@ Download a binary for Linux (x86_64/aarch64, static musl), macOS (Apple Silicon/
 or Windows (x86_64) from [Releases](https://github.com/aiman2039/sarah/releases), or:
 
 ```sh
+brew install aiman2039/tap/sarah   # macOS, Linux
 cargo install sarah
 ```
 
@@ -112,7 +113,7 @@ fn run() { /* ... */ }
 
 ## Config: `sarah.toml`
 
-Optional. Without it, sarah behaves as above. CLI flags win over the file.
+Without it, sarah behaves as above. CLI flags win over the file.
 
 ```toml
 preset = "rust"            # rust | python | go | ts | js | java | kotlin | csharp | swift | ruby | php | c | cpp | scala | elixir | zig
@@ -156,6 +157,8 @@ path = "src/generated/**"
 max_files = 100
 require = []                # an empty list turns a rule off
 ```
+
+More rules: [rules.md](docs/rules.md).
 
 Folder warnings use kinds such as `folder_too_many_files` and `folder_bad_name`. They
 work with `--fail-on-warn`, `--baseline`, `--changed-since` and annotations.
@@ -231,8 +234,7 @@ Outputs: `json` (report path), `tokens`, `warnings`.
 ## Development
 
 Hooks install on the first `cargo test` (cargo-husky). `pre-commit` runs
-`scripts/check.sh fmt` and `scripts/check.sh clippy`; `pre-push` runs
-`scripts/check.sh test` and `scripts/check.sh sarah`. Clippy runs pedantic plus the
+`scripts/check.sh fmt` and `clippy`; `pre-push` runs `test` and `sarah`. Clippy runs pedantic plus the
 safety lints in `[lints.clippy]` in `Cargo.toml`, with `-D warnings`.
 
 ```sh
@@ -245,16 +247,4 @@ and sarah on sarah on Linux, for every push to `master` and every pull request.
 
 ## Releasing
 
-```sh
-scripts/bump-version.sh               # 0.1.0 -> 0.1.1 in Cargo.toml + Cargo.lock (no commit)
-git commit -am "Release v0.1.1" && git push
-scripts/release.sh                    # trigger the Release workflow for origin/master's version
-
-scripts/git-release.sh --check-only   # run every check, change nothing
-scripts/git-release.sh                # all of the above in one step: check, bump, commit, tag, push, release
-```
-
-The Release workflow (`.github/workflows/release.yaml`) runs CI and the security checks,
-builds all five targets in parallel, uploads them to a draft release with
-`SHA256SUMS.txt`, publishes it, then runs the action end to end against the new release
-with `fail-on-warn`.
+See [releasing.md](docs/releasing.md).

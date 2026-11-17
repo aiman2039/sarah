@@ -20,6 +20,11 @@ impl Warning {
                     Self::for_file(f, &limits),
                     Self::for_file_fns(f, &limits),
                     Self::for_file_imports(f, &limits),
+                    Self::for_file_types(f, &limits),
+                    Self::for_long_lines(f, &limits),
+                    Self::for_low_comment_ratio(f, &limits),
+                    Self::for_high_comment_ratio(f, &limits),
+                    Self::for_public_items(f, &limits),
                 ]
                 .into_iter()
                 .flatten()
@@ -74,7 +79,7 @@ impl Warning {
                     .at_line(p.line),
                 );
             }
-            if rules.for_path(&f.path).require_allow_reason {
+            if rules.for_path(&f.path).flags.require_allow_reason {
                 out.extend(Self::missing_reason_warnings(f));
             }
         }
@@ -145,11 +150,7 @@ impl Warning {
 
     fn file_imports(f: &FileStats, rules: &LimitRules, folders: &FolderRules) -> Vec<Self> {
         let by_file = rules.forbid_imports_for(&f.path);
-        let dir = match f.path.parent() {
-            Some(p) if !p.as_os_str().is_empty() => p,
-            _ => Path::new("."),
-        };
-        let policy = folders.policy_for(dir);
+        let policy = folders.policy_for_file(&f.path);
         let by_folder = policy.as_ref().and_then(|p| p.forbid_imports);
         f.imports
             .iter()
@@ -173,7 +174,7 @@ impl Warning {
             .collect()
     }
 
-    fn match_import<'a>(
+    pub(super) fn match_import<'a>(
         patterns: Option<&'a NamePatterns>,
         raw: &str,
         resolved: Option<&str>,

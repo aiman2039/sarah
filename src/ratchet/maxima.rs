@@ -83,6 +83,9 @@ impl Maxima {
             LimitKey::FileLines => Some(file.lines.0),
             LimitKey::FileFns => file.functions.as_ref().map(Vec::len),
             LimitKey::FileImports => Some(file.imports.len()),
+            LimitKey::FileTypes => Some(file.types.len()),
+            LimitKey::PublicItems => file.public_items.map(|v| v.0),
+            LimitKey::LineLength => file.line_lengths.longest.map(|v| v.0),
             LimitKey::TypeFields | LimitKey::TypeMethods => file
                 .types
                 .iter()
@@ -115,6 +118,7 @@ impl Maxima {
             LimitKey::FnBoolParams => func.bool_params.map(|p| p.0),
             LimitKey::FnCyclomatic => Some(func.cyclomatic.0),
             LimitKey::FnCognitive => Some(func.cognitive.0),
+            LimitKey::FnReturns => Some(func.returns.0),
             _ => None,
         }
     }
@@ -124,11 +128,15 @@ impl Maxima {
             LimitKey::FileTokens | LimitKey::FileLines => WarningKind::LargeFile,
             LimitKey::FileFns => WarningKind::TooManyFunctions,
             LimitKey::FileImports => WarningKind::TooManyImports,
+            LimitKey::FileTypes => WarningKind::TooManyTypes,
+            LimitKey::PublicItems => WarningKind::TooManyPublicItems,
+            LimitKey::LineLength => WarningKind::LongLine,
             LimitKey::FnLines | LimitKey::FnTokens => WarningKind::LargeFunction,
             LimitKey::FnDepth => WarningKind::DeepFunction,
             LimitKey::FnParams => WarningKind::TooManyParams,
             LimitKey::FnBoolParams => WarningKind::TooManyBoolParams,
             LimitKey::FnCyclomatic | LimitKey::FnCognitive => WarningKind::ComplexFunction,
+            LimitKey::FnReturns => WarningKind::TooManyReturns,
             LimitKey::TypeFields | LimitKey::TypeMethods => WarningKind::LargeType,
         }
     }

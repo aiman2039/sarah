@@ -2,8 +2,8 @@ use std::fmt::Write as _;
 
 use super::View;
 use super::common::RenderHelpers;
-use crate::report::diff::DiffSummary;
-use crate::report::model::Report;
+use crate::report::DiffSummary;
+use crate::report::Report;
 
 impl Report {
     pub fn to_markdown(&self, view: View) -> String {

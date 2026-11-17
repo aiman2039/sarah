@@ -7,10 +7,12 @@ use super::args::{CheckArgs, Format};
 use super::output::CliOutput;
 use super::scan::{Scan, ScanOptions};
 use crate::cache::ScanCache;
-use crate::config::{Config, LimitPatch, LimitRules};
-use crate::count::FileStats;
+use crate::config::{Config, FlagPatch, LimitPatch, LimitRules};
+use crate::count::{AnalysisRun, FileStats};
 use crate::git::GitHelpers;
-use crate::report::{Baseline, Report, ReportInput, View};
+use crate::graph::{GraphRules, GraphRulesInput};
+use crate::render::View;
+use crate::report::{Baseline, Report, ReportInput};
 use crate::structure::{FolderPatch, FolderRules};
 use crate::walk::Skipped;
 
@@ -49,9 +51,9 @@ impl CheckArgs {
             config,
             files,
             skipped,
-        } = self.walk.scan_cached(ScanOptions {
+        } = self.walk.scan_cached(&ScanOptions {
             with_functions: !self.no_functions,
-            cli_exclude_tests: self.hygiene.exclude_inline_tests,
+            cli: self.limit_flags(),
             cache,
         })?;
         let limits = self.limit_rules(&config)?;
@@ -67,8 +69,18 @@ impl CheckArgs {
         LimitRules::with_base(&config.files, config.base_flags(), self.limit_flags())
     }
 
+    /// The run-wide analysis switches of this check.
+    pub fn analysis_run(&self) -> AnalysisRun {
+        AnalysisRun {
+            tokenizer: self.walk.tokenizer,
+            with_functions: !self.no_functions,
+            skip_generated: !self.walk.no_default_excludes,
+        }
+    }
+
     pub fn folder_rules(&self, config: &Config) -> Result<FolderRules> {
-        FolderRules::with_cli(config.preset, config.folder.clone(), self.folder_flags())
+        FolderRules::with_cli(config.preset, config.folder.clone(), self.folder_flags())?
+            .with_test_paths(config.test_paths.as_deref())
     }
 
     pub(super) fn report_input(
@@ -91,6 +103,11 @@ impl CheckArgs {
             tokenizer: self.walk.tokenizer.to_string(),
             no_cycles,
             max_duplicate_lines,
+            graph: GraphRules::new(GraphRulesInput {
+                layers: &config.layers,
+                entry_points: &config.entry_points,
+                orphans: self.hygiene.orphans || config.orphan_files.unwrap_or(false),
+            })?,
         })
     }
 
@@ -104,24 +121,29 @@ impl CheckArgs {
     }
 
     fn limit_flags(&self) -> LimitPatch {
+        let file = &self.file_limits;
         LimitPatch {
-            max_file_tokens: self.max_file_tokens,
-            max_file_lines: self.max_file_lines,
-            max_file_fns: self.max_file_fns,
-            max_file_imports: self.max_file_imports,
-            max_fn_lines: self.fn_limits.lines,
-            max_fn_tokens: self.fn_limits.tokens,
-            max_fn_depth: self.fn_limits.depth,
-            max_fn_params: self.fn_limits.params,
-            max_fn_bool_params: self.fn_limits.bool_params,
-            max_fn_cyclomatic: self.fn_limits.cyclomatic,
-            max_fn_cognitive: self.fn_limits.cognitive,
+            max_file_tokens: file.max_file_tokens,
+            max_file_lines: file.max_file_lines,
+            max_file_fns: file.max_file_fns,
+            max_file_imports: file.max_file_imports,
+            max_file_types: file.max_file_types,
+            max_public_items: file.max_file_public_items,
+            max_line_length: file.max_line_length,
+            min_comment_ratio: file.min_comment_ratio,
+            max_comment_ratio: file.max_comment_ratio,
+            func: self.fn_limits,
             max_type_fields: self.max_type_fields,
             max_type_methods: self.max_type_methods,
             max_todos: self.hygiene.max_todos,
-            unused_allow: self.hygiene.unused_allow.then_some(true),
-            require_allow_reason: self.hygiene.require_allow_reason.then_some(true),
-            exclude_inline_tests: self.hygiene.exclude_inline_tests.then_some(true),
+            max_fan_in: file.max_file_fan_in,
+            max_fan_out: file.max_file_fan_out,
+            max_context_tokens: file.max_context_tokens,
+            flags: FlagPatch {
+                unused_allow: self.hygiene.unused_allow.then_some(true),
+                require_allow_reason: self.hygiene.require_allow_reason.then_some(true),
+                exclude_inline_tests: self.hygiene.exclude_inline_tests.then_some(true),
+            },
         }
     }
 

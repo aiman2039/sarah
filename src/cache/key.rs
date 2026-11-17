@@ -1,29 +1,26 @@
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
-use crate::count::AnalyzeInput;
+use crate::config::AnalysisKey;
+use crate::count::{AnalysisRun, AnalyzeInput};
 
+/// File signature plus everything that changes the analysis of the file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct CacheStamp {
     pub modified_nanos: u128,
     pub len: u64,
-    pub tokenizer: String,
-    pub flags: u8,
+    pub run: AnalysisRun,
+    pub rules: AnalysisKey,
 }
 
 impl CacheStamp {
-    pub(super) fn of(input: &AnalyzeInput) -> Option<Self> {
-        let meta = std::fs::metadata(&input.entry.real).ok()?;
-        let modified = meta.modified().ok()?;
-        let modified_nanos = modified.duration_since(UNIX_EPOCH).ok()?.as_nanos();
-        let flags = u8::from(input.with_functions)
-            | (u8::from(input.skip_generated) << 1)
-            | (u8::from(input.exclude_inline_tests) << 2);
+    pub(super) fn of(input: &AnalyzeInput<'_>) -> Option<Self> {
+        let (modified_nanos, len) = Self::file_sig(&input.entry.real)?;
         Some(Self {
             modified_nanos,
-            len: meta.len(),
-            tokenizer: input.tokenizer.to_string(),
-            flags,
+            len,
+            run: input.run,
+            rules: input.rules.key(),
         })
     }
 

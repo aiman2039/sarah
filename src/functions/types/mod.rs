@@ -7,8 +7,8 @@ use tree_sitter::Node;
 
 use self::classes::ClassHelpers;
 use self::other::OtherTypes;
-use super::lang::Lang;
-use super::scope::Scope;
+use crate::lang::Lang;
+use crate::lang::Scope;
 use crate::report::WarningKind;
 use crate::units::{Fields, LineNo, Methods};
 

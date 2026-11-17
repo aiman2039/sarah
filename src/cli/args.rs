@@ -2,10 +2,12 @@ use std::path::PathBuf;
 
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 
+use crate::config::FnPatch;
 use crate::count::Tokenizer;
 use crate::report::SortBy;
+use crate::units::Fan;
 use crate::units::{
-    Cognitive, Cyclomatic, Depth, Fields, Functions, Imports, Lines, Methods, Params, Tokens,
+    Chars, Depth, Fields, Functions, Imports, Items, Lines, Methods, Percent, Tokens, Types,
 };
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -125,6 +127,10 @@ pub struct HygieneArgs {
     #[arg(long)]
     pub no_cycles: bool,
 
+    /// Warn on code files that no file imports and that are not entry points
+    #[arg(long)]
+    pub orphans: bool,
+
     /// Warn when a `sarah-allow` comment suppresses no warning
     #[arg(long)]
     pub unused_allow: bool,
@@ -142,36 +148,56 @@ pub struct HygieneArgs {
     pub watch: bool,
 }
 
-/// Function-level CLI overrides (`--max-fn-*`).
+/// File-level CLI overrides (`--max-file-*`, line length, comment ratio).
 #[derive(ClapArgs, Debug, Clone, Copy, Default)]
-pub struct FnLimitArgs {
-    /// [default: 80]
-    #[arg(id = "fn_lines", long = "max-fn-lines")]
-    pub lines: Option<Lines>,
+pub struct FileLimitArgs {
+    /// [default: 8000]
+    #[arg(long)]
+    pub max_file_tokens: Option<Tokens>,
 
-    /// Warn on functions over this many tokens [default: off]
-    #[arg(id = "fn_tokens", long = "max-fn-tokens")]
-    pub tokens: Option<Tokens>,
+    /// [default: 500]
+    #[arg(long)]
+    pub max_file_lines: Option<Lines>,
 
-    /// Warn on functions nested deeper than this (if/loop/match levels) [default: off]
-    #[arg(id = "fn_depth", long = "max-fn-depth")]
-    pub depth: Option<Depth>,
+    /// Warn on files declaring more functions than this [default: off]
+    #[arg(long)]
+    pub max_file_fns: Option<Functions>,
 
-    /// Warn on functions with more parameters than this (`self` excluded) [default: off]
-    #[arg(id = "fn_params", long = "max-fn-params")]
-    pub params: Option<Params>,
+    /// Warn on files with more imports than this [default: off]
+    #[arg(long)]
+    pub max_file_imports: Option<Imports>,
 
-    /// Warn on functions with more boolean parameters than this [default: off]
-    #[arg(id = "fn_bool_params", long = "max-fn-bool-params")]
-    pub bool_params: Option<Params>,
+    /// Warn on files imported by more internal files than this [default: off]
+    #[arg(long)]
+    pub max_file_fan_in: Option<Fan>,
 
-    /// Warn on functions over this cyclomatic complexity [default: off]
-    #[arg(id = "fn_cyclomatic", long = "max-fn-cyclomatic")]
-    pub cyclomatic: Option<Cyclomatic>,
+    /// Warn on files importing more internal files than this [default: off]
+    #[arg(long)]
+    pub max_file_fan_out: Option<Fan>,
 
-    /// Warn on functions over this cognitive complexity [default: off]
-    #[arg(id = "fn_cognitive", long = "max-fn-cognitive")]
-    pub cognitive: Option<Cognitive>,
+    /// Warn on files whose tokens plus their transitive imports' tokens exceed this [default: off]
+    #[arg(long)]
+    pub max_context_tokens: Option<Tokens>,
+
+    /// Warn on files declaring more structs/classes/enums than this [default: off]
+    #[arg(long)]
+    pub max_file_types: Option<Types>,
+
+    /// Warn on files with more public functions, methods and types than this [default: off]
+    #[arg(long)]
+    pub max_file_public_items: Option<Items>,
+
+    /// Warn on files with code lines longer than this many characters [default: off]
+    #[arg(long)]
+    pub max_line_length: Option<Chars>,
+
+    /// Warn on files whose comment lines are under this percent of code + comment lines [default: off]
+    #[arg(long, value_name = "PERCENT")]
+    pub min_comment_ratio: Option<Percent>,
+
+    /// Warn on files whose comment lines are over this percent of code + comment lines [default: off]
+    #[arg(long, value_name = "PERCENT")]
+    pub max_comment_ratio: Option<Percent>,
 }
 
 /// The default command: measure, warn, report.
@@ -190,24 +216,11 @@ pub struct CheckArgs {
     #[arg(short = 'n', long, default_value_t = 20)]
     pub top: usize,
 
-    /// [default: 8000]
-    #[arg(long)]
-    pub max_file_tokens: Option<Tokens>,
-
-    /// [default: 500]
-    #[arg(long)]
-    pub max_file_lines: Option<Lines>,
-
-    /// Warn on files declaring more functions than this [default: off]
-    #[arg(long)]
-    pub max_file_fns: Option<Functions>,
-
-    /// Warn on files with more imports than this [default: off]
-    #[arg(long)]
-    pub max_file_imports: Option<Imports>,
+    #[command(flatten)]
+    pub file_limits: FileLimitArgs,
 
     #[command(flatten)]
-    pub fn_limits: FnLimitArgs,
+    pub fn_limits: FnPatch,
 
     /// Warn on structs/classes with more fields than this [default: off]
     #[arg(long)]

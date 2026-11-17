@@ -22,6 +22,14 @@ pub enum WarningKind {
     CircularImport,
     DuplicateCode,
     TodoComment,
+    LayerViolation,
+    HighFanIn,
+    HighFanOut,
+    OrphanFile,
+    DisallowedImport,
+    LargeContext,
+    MissingTest,
+    ForbiddenPattern,
     FolderTooManyFiles,
     FolderTooManyTotalFiles,
     FolderTooManyDirs,
@@ -34,8 +42,16 @@ pub enum WarningKind {
     FolderBadName,
     FolderSiblingModule,
     FolderUnexpectedDir,
+    FolderLowTestRatio,
+    FolderHighTestRatio,
     BadAllow,
     UnusedAllow,
+    TooManyReturns,
+    TooManyTypes,
+    LongLine,
+    LowCommentRatio,
+    HighCommentRatio,
+    TooManyPublicItems,
 }
 
 impl WarningKind {
@@ -44,10 +60,18 @@ impl WarningKind {
         self.to_string().starts_with("folder_")
     }
 
+    /// Kinds that need the whole walked tree (folder rules, `missing_test`); a single-file
+    /// check leaves them out.
+    pub fn needs_whole_tree(self) -> bool {
+        self.is_folder() || self == Self::MissingTest
+    }
+
     /// Human-readable rule summary for SARIF code scanning.
     pub fn description(self) -> &'static str {
         self.folder_description()
-            .unwrap_or_else(|| self.item_description())
+            .or_else(|| self.function_description())
+            .or_else(|| self.import_description())
+            .unwrap_or_else(|| self.file_description())
     }
 
     fn folder_description(self) -> Option<&'static str> {
@@ -64,26 +88,54 @@ impl WarningKind {
             Self::FolderBadName => "File or folder violates naming convention",
             Self::FolderSiblingModule => "File shares a name with a sibling folder",
             Self::FolderUnexpectedDir => "Sub-folder is not in the allow_only list",
+            Self::FolderLowTestRatio => "Folder subtree has too little test code",
+            Self::FolderHighTestRatio => "Folder subtree has too much test code",
             _ => return None,
         })
     }
 
-    fn item_description(self) -> &'static str {
-        match self {
-            Self::LargeFile => "File exceeds token or line limit",
-            Self::TooManyFunctions => "File declares too many functions",
-            Self::TooManyImports => "File imports too many modules",
+    fn function_description(self) -> Option<&'static str> {
+        Some(match self {
             Self::LargeFunction => "Function exceeds line or token limit",
             Self::DeepFunction => "Function control-flow nesting is too deep",
             Self::TooManyParams => "Function has too many parameters",
             Self::TooManyBoolParams => "Function has too many boolean flag parameters",
             Self::ComplexFunction => "Function exceeds cyclomatic or cognitive complexity limit",
+            Self::TooManyReturns => "Function has too many return statements",
             Self::LargeType => "Struct or class has too many fields or methods",
+            _ => return None,
+        })
+    }
+
+    fn import_description(self) -> Option<&'static str> {
+        Some(match self {
             Self::ForbiddenImport => "Import matches a forbidden module pattern",
             Self::CircularImport => "Files form a circular import dependency",
+            Self::LayerViolation => "File imports a file of a higher layer",
+            Self::HighFanIn => "Too many files import this file",
+            Self::HighFanOut => "File imports too many internal files",
+            Self::OrphanFile => "No file imports this file and it is not an entry point",
+            Self::DisallowedImport => "Import matches no allowed module pattern",
+            Self::LargeContext => "File and its transitive imports exceed the context token limit",
+            _ => return None,
+        })
+    }
+
+    fn file_description(self) -> &'static str {
+        match self {
+            Self::LargeFile => "File exceeds token or line limit",
+            Self::TooManyFunctions => "File declares too many functions",
+            Self::TooManyImports => "File imports too many modules",
             Self::DuplicateCode => "Duplicate code block appears in multiple places",
             Self::TodoComment => "Comment contains a forbidden marker or exceeds TODO limit",
+            Self::MissingTest => "File has no matching test file and no inline test",
+            Self::ForbiddenPattern => "Line matches a forbidden pattern",
             Self::BadAllow => "Malformed or misplaced sarah-allow directive",
+            Self::TooManyTypes => "File declares too many types",
+            Self::LongLine => "File has lines over the length limit",
+            Self::LowCommentRatio => "File has too few comment lines for its code",
+            Self::HighCommentRatio => "File has too many comment lines for its code",
+            Self::TooManyPublicItems => "File exposes too many public items",
             _ => "sarah-allow directive suppressed no warning",
         }
     }

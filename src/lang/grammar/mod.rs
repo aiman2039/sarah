@@ -12,7 +12,7 @@ use systems::{C, CPP, GO, RUST, ZIG};
 use super::Lang;
 
 /// Where a function's parameters are, and which children of that list count.
-pub(in crate::functions) struct ParamSpec {
+pub(crate) struct ParamSpec {
     /// Parameter-list kinds; empty when parameters are direct children of the definition.
     pub lists: &'static [&'static str],
     /// Kinds of one parameter.
@@ -21,7 +21,7 @@ pub(in crate::functions) struct ParamSpec {
     pub names_per_item: bool,
 }
 
-pub(in crate::functions) struct Grammar {
+pub(crate) struct Grammar {
     /// Opens one level of control-flow nesting (`depth`).
     pub nesting: &'static [&'static str],
     /// `if`, loops, `catch`, ternaries: +1 to both complexities, nesting-weighted in cognitive.
@@ -41,7 +41,7 @@ pub(in crate::functions) struct Grammar {
 }
 
 impl Lang {
-    pub(in crate::functions) fn grammar(self) -> &'static Grammar {
+    pub(crate) fn grammar(self) -> &'static Grammar {
         match self {
             Self::Rust => &RUST,
             Self::Python => &PYTHON,

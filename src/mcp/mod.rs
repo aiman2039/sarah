@@ -2,6 +2,7 @@
 
 mod requests;
 mod server;
+mod single_file;
 mod tools;
 
 pub use server::McpServer;

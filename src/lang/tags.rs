@@ -46,7 +46,7 @@ const SWIFT_TAGS_QUERY: &str = "
 ";
 
 impl Lang {
-    pub(in crate::functions) fn config(self) -> Option<&'static TagsConfiguration> {
+    pub(crate) fn config(self) -> Option<&'static TagsConfiguration> {
         type Cell = OnceLock<Option<TagsConfiguration>>;
         static CELLS: [Cell; Lang::ALL.len()] = [const { OnceLock::new() }; Lang::ALL.len()];
 

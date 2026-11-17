@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "sarah"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1533,6 +1533,7 @@ dependencies = [
  "ignore",
  "insta",
  "rayon",
+ "regex",
  "regex-automata",
  "rmcp",
  "serde",

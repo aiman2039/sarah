@@ -64,6 +64,7 @@ impl CheckArgs {
             .collect();
         let root = dunce::canonicalize(&self.walk.path)?;
         let limits = self.limit_rules(config)?;
+        let test_ratio = self.folder_rules(config)?.has_test_ratio();
         for rel in changed {
             if !self.walk.hidden && Self::is_hidden_rel(rel) {
                 continue;
@@ -77,10 +78,8 @@ impl CheckArgs {
             if let Analysis::Counted(stats) = FileStats::analyze_source(SourceInput {
                 path: rel.clone(),
                 text: &text,
-                tokenizer: self.walk.tokenizer,
-                with_functions: !self.no_functions,
-                skip_generated: !self.walk.no_default_excludes,
-                exclude_inline_tests: limits.for_path(rel).exclude_inline_tests,
+                run: self.analysis_run(),
+                rules: limits.analysis_for(rel, test_ratio),
             }) {
                 out.push(*stats);
             }

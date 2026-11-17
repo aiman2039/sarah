@@ -205,42 +205,38 @@ impl Sizes {
         }
     }
 
+    /// The sizes a warning is compared on; `None` for kinds that only appear or disappear.
     fn of(&self, w: &Warning) -> Option<Vec<usize>> {
+        use WarningKind as K;
         match w.kind {
-            WarningKind::LargeFile | WarningKind::TooManyFunctions => {
-                self.files.get(&w.path).map(|s| s.to_vec())
+            K::LargeFile | K::TooManyFunctions => self.files.get(&w.path).map(|s| s.to_vec()),
+            K::LargeFunction | K::DeepFunction | K::TooManyParams => self.function(w),
+            K::TooManyBoolParams | K::ComplexFunction => self.function(w),
+            K::FolderTooManyFiles | K::FolderTooManyTotalFiles | K::FolderTooManyDirs => {
+                self.dirs.get(&w.path).map(|s| s.to_vec())
             }
-            WarningKind::LargeFunction
-            | WarningKind::DeepFunction
-            | WarningKind::TooManyParams
-            | WarningKind::TooManyBoolParams
-            | WarningKind::ComplexFunction => {
-                let name = w.subject.clone()?;
-                self.functions
-                    .get(&(w.path.clone(), name))
-                    .map(|s| s.to_vec())
+            K::FolderTooManyLines | K::FolderTooManyTokens => {
+                self.dirs.get(&w.path).map(|s| s.to_vec())
             }
-            WarningKind::FolderTooManyFiles
-            | WarningKind::FolderTooManyTotalFiles
-            | WarningKind::FolderTooManyDirs
-            | WarningKind::FolderTooManyLines
-            | WarningKind::FolderTooManyTokens => self.dirs.get(&w.path).map(|s| s.to_vec()),
-            WarningKind::FolderTooDeep => self.dir_max_depth.get(&w.path).map(|d| vec![*d]),
-            WarningKind::FolderTooFewEntries => self.dir_inv_entries.get(&w.path).map(|e| vec![*e]),
-            WarningKind::TooManyImports
-            | WarningKind::LargeType
-            | WarningKind::ForbiddenImport
-            | WarningKind::CircularImport
-            | WarningKind::DuplicateCode
-            | WarningKind::TodoComment
-            | WarningKind::FolderMissingRequired
-            | WarningKind::FolderForbiddenName
-            | WarningKind::FolderBadName
-            | WarningKind::FolderSiblingModule
-            | WarningKind::FolderUnexpectedDir
-            | WarningKind::BadAllow
-            | WarningKind::UnusedAllow => None,
+            K::FolderTooDeep => self.dir_max_depth.get(&w.path).map(|d| vec![*d]),
+            K::FolderTooFewEntries => self.dir_inv_entries.get(&w.path).map(|e| vec![*e]),
+            K::TooManyImports | K::LargeType | K::ForbiddenImport | K::CircularImport => None,
+            K::DuplicateCode | K::TodoComment | K::LayerViolation | K::HighFanIn => None,
+            K::HighFanOut | K::OrphanFile | K::DisallowedImport | K::LargeContext => None,
+            K::MissingTest | K::ForbiddenPattern | K::FolderMissingRequired => None,
+            K::FolderForbiddenName | K::FolderBadName | K::FolderSiblingModule => None,
+            K::FolderUnexpectedDir | K::FolderLowTestRatio | K::FolderHighTestRatio => None,
+            K::BadAllow | K::UnusedAllow | K::TooManyReturns | K::TooManyTypes => None,
+            K::LongLine | K::LowCommentRatio | K::HighCommentRatio => None,
+            K::TooManyPublicItems => None,
         }
+    }
+
+    fn function(&self, w: &Warning) -> Option<Vec<usize>> {
+        let name = w.subject.clone()?;
+        self.functions
+            .get(&(w.path.clone(), name))
+            .map(|s| s.to_vec())
     }
 }
 

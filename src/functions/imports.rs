@@ -2,8 +2,8 @@ use std::path::{Component, Path};
 
 use tree_sitter::Node;
 
-use super::lang::Lang;
-use super::scope::Scope;
+use crate::lang::Lang;
+use crate::lang::Scope;
 use crate::units::LineNo;
 
 const DECL_IMPORT_KINDS: &[&str] = &[
@@ -23,16 +23,19 @@ pub struct ImportRef {
 struct ImportCollector<'a> {
     scope: &'a Scope<'a>,
     out: Vec<ImportRef>,
+    module_decls: Vec<String>,
 }
 
 /// Stateless helpers that extract imported module paths per file.
 pub struct ImportHelpers;
 
 impl ImportHelpers {
-    pub(super) fn extract(scope: &Scope) -> Vec<ImportRef> {
+    /// The imports, and the names of Rust `mod name;` declarations (kept apart).
+    pub(super) fn extract(scope: &Scope) -> (Vec<ImportRef>, Vec<String>) {
         let mut collector = ImportCollector {
             scope,
             out: Vec::new(),
+            module_decls: Vec::new(),
         };
         let mut stack = vec![scope.node];
         while let Some(node) = stack.pop() {
@@ -43,7 +46,7 @@ impl ImportHelpers {
                 stack.extend(children.into_iter().rev());
             }
         }
-        collector.out
+        (collector.out, collector.module_decls)
     }
 
     fn stops_descent(kind: &str) -> bool {
@@ -144,6 +147,7 @@ impl ImportCollector<'_> {
                     self.rust_use(arg, "", line);
                 }
             }
+            (Lang::Rust, "mod_item") => self.rust_mod(node),
             (Lang::Python, "import_statement") => self.py_import(node, line),
             (Lang::Python, "import_from_statement") => {
                 if let Some(m) = node.child_by_field_name("module_name") {
@@ -213,6 +217,18 @@ impl ImportCollector<'_> {
                 }
             }
             _ => self.push(line, &join(prefix, self.scope.text(node).trim())),
+        }
+    }
+
+    /// `mod name;` (no body): the module lives in another file.
+    fn rust_mod(&mut self, node: Node) {
+        if node.child_by_field_name("body").is_some() {
+            return;
+        }
+        if let Some(name) = node.child_by_field_name("name") {
+            let name = self.scope.text(name).trim();
+            let name = name.strip_prefix("r#").unwrap_or(name);
+            self.module_decls.push(name.to_string());
         }
     }
 
