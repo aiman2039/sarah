@@ -217,6 +217,49 @@ jobs:
           CARGO_HUSKY_DONT_INSTALL_HOOKS: 'true'
         run: cargo publish --locked
 
+  # Push the formula to the aiman2039/homebrew-tap repo. One-time setup: create that
+  # repo and store a fine-grained PAT with contents:write on it as HOMEBREW_TAP_TOKEN.
+  # Prereleases are skipped.
+  publish-homebrew:
+    needs: [prepare, publish]
+    if: ${{ !contains(needs.prepare.outputs.tag, '-') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - name: Update the formula in the tap
+        run: |
+          set -euo pipefail
+          if [[ -z "$TAP_TOKEN" ]]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set; skipping the Homebrew tap update."
+            exit 0
+          fi
+          gh release download "$TAG" --pattern SHA256SUMS.txt --dir "$RUNNER_TEMP"
+          tap="$RUNNER_TEMP/tap"
+          git clone --depth 1 \
+            "https://x-access-token:${TAP_TOKEN}@github.com/aiman2039/homebrew-tap.git" "$tap"
+          mkdir -p "$tap/Formula"
+          bash scripts/homebrew-formula.sh "$TAG" "$RUNNER_TEMP/SHA256SUMS.txt" > "$tap/Formula/sarah.rb"
+          cd "$tap"
+          if git diff --quiet -- Formula/sarah.rb && git ls-files --error-unmatch Formula/sarah.rb >/dev/null 2>&1; then
+            echo "Formula is already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/sarah.rb
+          git commit -m "sarah ${TAG#v}"
+          git push
+
   # End-to-end check of the public action against the release just published.
   verify-action:
     needs: [prepare, publish]

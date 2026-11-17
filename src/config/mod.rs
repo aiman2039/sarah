@@ -4,8 +4,11 @@ mod file;
 mod glob;
 mod keys;
 mod limits;
+mod patterns;
+mod test_templates;
 
 pub use file::Config;
-pub use glob::{DirPattern, NamePatterns};
+pub use glob::{DEFAULT_TEST_GLOBS, DirPattern, GlobHelpers, NamePatterns};
 pub use keys::LimitKey;
-pub use limits::{LimitPatch, LimitRules, Limits};
+pub use limits::{AnalysisKey, AnalysisRules, FlagPatch, FnPatch, LimitPatch, LimitRules, Limits};
+pub use patterns::PatternHit;

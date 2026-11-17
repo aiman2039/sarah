@@ -75,7 +75,7 @@ impl<'a> AllowIndex<'a> {
     ) -> Vec<Warning> {
         let mut out = Vec::new();
         for file in files {
-            if !rules.for_path(&file.path).unused_allow {
+            if !rules.for_path(&file.path).flags.unused_allow {
                 continue;
             }
             for tracked in &file.allows.tracked {

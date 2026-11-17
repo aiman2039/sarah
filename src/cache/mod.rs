@@ -20,7 +20,7 @@ impl ScanCache {
     }
 
     /// Return cached `Analysis` when `mtime`, `len` and options match; else measure and store.
-    pub fn analyze(&self, input: AnalyzeInput) -> Analysis {
+    pub fn analyze(&self, input: AnalyzeInput<'_>) -> Analysis {
         let Some(stamp) = CacheStamp::of(&input) else {
             return FileStats::analyze(input);
         };

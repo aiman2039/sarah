@@ -1,7 +1,7 @@
 use super::View;
 use super::common::RenderHelpers;
-use crate::report::diff::DiffSummary;
-use crate::report::model::Report;
+use crate::report::DiffSummary;
+use crate::report::Report;
 
 impl Report {
     pub fn to_table(&self, view: View) -> String {

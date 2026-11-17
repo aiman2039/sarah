@@ -1,7 +1,7 @@
 use tree_sitter::Node;
 
 use super::{NewType, TypeStats};
-use crate::functions::scope::Scope;
+use crate::lang::Scope;
 
 /// Elixir (`defmodule`) and Zig (`const T = struct { ... }`) types.
 pub(super) struct OtherTypes;

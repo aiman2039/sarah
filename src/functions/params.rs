@@ -1,7 +1,7 @@
 use tree_sitter::Node;
 
-use super::lang::{Lang, ParamSpec};
-use super::scope::Scope;
+use crate::lang::Scope;
+use crate::lang::{Lang, ParamSpec};
 use crate::units::Params;
 
 /// Receivers and C's `(void)`, which declare no real parameter.

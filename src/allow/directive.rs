@@ -46,6 +46,7 @@ impl Scope {
                 WarningKind::TooManyBoolParams,
                 WarningKind::ComplexFunction,
                 WarningKind::LargeType,
+                WarningKind::TooManyReturns,
             ],
             Self::File => &[
                 WarningKind::LargeFile,
@@ -61,6 +62,20 @@ impl Scope {
                 WarningKind::CircularImport,
                 WarningKind::DuplicateCode,
                 WarningKind::TodoComment,
+                WarningKind::LayerViolation,
+                WarningKind::HighFanIn,
+                WarningKind::HighFanOut,
+                WarningKind::OrphanFile,
+                WarningKind::DisallowedImport,
+                WarningKind::LargeContext,
+                WarningKind::MissingTest,
+                WarningKind::ForbiddenPattern,
+                WarningKind::TooManyReturns,
+                WarningKind::TooManyTypes,
+                WarningKind::LongLine,
+                WarningKind::LowCommentRatio,
+                WarningKind::HighCommentRatio,
+                WarningKind::TooManyPublicItems,
             ],
         }
     }

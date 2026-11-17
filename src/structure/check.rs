@@ -177,28 +177,19 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::allow::Allows;
-    use crate::count::{CommentInfo, FileStats};
+    use crate::count::FileStats;
     use crate::structure::FolderRule;
     use crate::structure::naming::Naming;
-    use crate::units::{Bytes, Depth, Lines, Tokens};
+    use crate::units::{Depth, Lines, Tokens};
 
     fn file(path: &str) -> FileStats {
         FileStats {
             path: path.into(),
             language: "Rust".into(),
-            bytes: Bytes(0),
             lines: Lines(10),
             code: Lines(10),
-            comments: Lines(0),
-            blanks: Lines(0),
             tokens: Tokens(10),
-            functions: None,
-            types: Vec::new(),
-            imports: Vec::new(),
-            comment_info: CommentInfo::default(),
-            norm_lines: Vec::new(),
-            allows: Allows::default(),
+            ..FileStats::default()
         }
     }
 

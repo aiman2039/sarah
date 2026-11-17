@@ -7,14 +7,17 @@ use tree_sitter_tags::TagsContext;
 
 use super::complexity::{Complexity, ComplexityHelpers};
 use super::imports::{ImportHelpers, ImportRef};
-use super::lang::Lang;
 use super::nesting::{NestingHelpers, NestingStats};
 use super::params::{ParamCounts, ParamHelpers};
-use super::scope::Scope;
+use super::returns::ReturnHelpers;
 use super::types::{TypeHelpers, TypeStats};
 use crate::count::Tokenizer;
+use crate::lang::Lang;
+use crate::lang::Scope;
 use crate::report::WarningKind;
 use crate::units::{Cognitive, Cyclomatic, Depth, LineNo, LineSpan, Lines, Params, Tokens};
+use crate::units::{Items, Returns};
+use crate::visibility::VisibilityHelpers;
 
 /// Everything extracted from one parsed syntax tree: functions, types and imports.
 #[derive(Debug, Default)]
@@ -22,6 +25,10 @@ pub struct AstStats {
     pub functions: Vec<FnStats>,
     pub types: Vec<TypeStats>,
     pub imports: Vec<ImportRef>,
+    /// Names of Rust `mod name;` declarations (modules in other files).
+    pub module_decls: Vec<String>,
+    /// Public API items; `None` when sarah cannot tell visibility for the language.
+    pub public_items: Option<Items>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -42,6 +49,8 @@ pub struct FnStats {
     pub bool_params: Option<Params>,
     pub cyclomatic: Cyclomatic,
     pub cognitive: Cognitive,
+    /// Explicit `return` statements, not counting nested functions and closures.
+    pub returns: Returns,
     /// Warning kinds a `sarah-allow` comment above the function turns off.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allow: Vec<WarningKind>,
@@ -72,11 +81,14 @@ impl AstStats {
         };
         let functions = FnStats::from_tree(&root_scope, tokenizer)?;
         let types = TypeHelpers::extract(&root_scope);
-        let imports = ImportHelpers::extract(&root_scope);
+        let (imports, module_decls) = ImportHelpers::extract(&root_scope);
+        let public_items = VisibilityHelpers::count(&root_scope);
         Some(Self {
             functions,
             types,
             imports,
+            module_decls,
+            public_items,
         })
     }
 }
@@ -165,6 +177,7 @@ impl FnStats {
             bool_params: bools,
             cyclomatic,
             cognitive,
+            returns: ReturnHelpers::count(scope),
             allow: Vec::new(),
             deepest_block: deepest,
             largest_block: largest,

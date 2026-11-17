@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use super::common::RenderHelpers;
-use crate::report::model::Report;
+use crate::report::Report;
 
 impl Report {
     /// GitHub Actions workflow commands: one `::warning` annotation per warning.

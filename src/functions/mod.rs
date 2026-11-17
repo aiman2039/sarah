@@ -5,10 +5,9 @@ mod complexity;
 mod extract;
 mod imports;
 mod inline_tests;
-mod lang;
 mod nesting;
 mod params;
-mod scope;
+mod returns;
 mod types;
 
 pub use extract::{AstHelpers, AstStats, FnStats};

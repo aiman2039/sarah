@@ -5,11 +5,11 @@ use serde_json::{Value, json};
 
 use super::framing::LspFraming;
 use crate::config::{Config, LimitPatch, LimitRules};
-use crate::count::{Analysis, FileStats, SourceInput, Tokenizer};
-use crate::report::{Report, ReportInput, SortBy, Warning};
+use crate::count::{Analysis, AnalysisRun, FileStats, SourceInput, Tokenizer};
+use crate::report::{Report, SingleFileInput, SortBy, Warning};
 use crate::structure::{DirNode, DirStats, FolderRules};
 use crate::units::{Depth, Lines, Tokens};
-use crate::walk::{Skipped, WalkFilters};
+use crate::walk::WalkFilters;
 
 /// Computes LSP `Diagnostic` items for one open document under its workspace `sarah.toml`.
 pub(super) struct LspDiagnostics;
@@ -66,14 +66,18 @@ impl LspDiagnostics {
         let limits =
             LimitRules::with_base(&config.files, config.base_flags(), LimitPatch::default())
                 .ok()?;
-        let exclude_tests = limits.for_path(&relative).exclude_inline_tests;
+        let test_ratio = FolderRules::new(config.preset, config.folder.clone())
+            .ok()?
+            .has_test_ratio();
         let Analysis::Counted(stats) = FileStats::analyze_source(SourceInput {
             path: relative.clone(),
             text,
-            tokenizer: Tokenizer::O200k,
-            with_functions: true,
-            skip_generated: true,
-            exclude_inline_tests: exclude_tests,
+            run: AnalysisRun {
+                tokenizer: Tokenizer::O200k,
+                with_functions: true,
+                skip_generated: true,
+            },
+            rules: limits.analysis_for(&relative, test_ratio),
         }) else {
             return Some(Vec::new());
         };
@@ -87,10 +91,8 @@ impl LspDiagnostics {
     ) -> Option<Vec<Value>> {
         let (root, real, relative) = paths;
         let (stats, limits) = measured;
-        let folders = FolderRules::new(config.preset, config.folder.clone()).ok()?;
-        let mut report = Report::build(ReportInput {
-            files: vec![stats],
-            skipped: Skipped::default(),
+        let mut report = Report::single_file(SingleFileInput {
+            file: stats,
             sort: SortBy::Tokens,
             limits: LimitRules::with_base(
                 &config.files,
@@ -100,19 +102,8 @@ impl LspDiagnostics {
             .ok()?,
             folders: FolderRules::new(config.preset, config.folder.clone()).ok()?,
             tokenizer: "o200k".to_string(),
-            no_cycles: false,
-            max_duplicate_lines: None,
+            parent: Self::parent_node((root, real, relative), config),
         });
-        report.warnings.retain(|w| !w.kind.is_folder());
-        if let Some(parent_node) = Self::parent_node((root, real, relative), config) {
-            let parent_rel = &parent_node.stats.path;
-            report.warnings.extend(
-                folders
-                    .check_single_dir(&parent_node)
-                    .into_iter()
-                    .filter(|w| w.path == relative || &w.path == parent_rel),
-            );
-        }
         report.apply_allows(limits);
         Some(report.warnings.iter().map(Self::to_lsp).collect())
     }
@@ -120,10 +111,7 @@ impl LspDiagnostics {
     fn parent_node(paths: (&Path, &Path, &Path), config: &Config) -> Option<DirNode> {
         let (root, real, relative) = paths;
         let parent_real = real.parent()?;
-        let parent_rel = match relative.parent() {
-            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
-            _ => PathBuf::from("."),
-        };
+        let parent_rel = FolderRules::folder_of(relative).to_path_buf();
         let depth = if parent_rel == Path::new(".") {
             Depth(0)
         } else {

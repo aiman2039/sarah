@@ -8,7 +8,7 @@ use crate::units::Tokens;
 
 /// Claude's tokenizer isn't public; the `o200k`/`cl100k` encodings (via `bpe-openai`,
 /// which matches `tiktoken` exactly) are a close approximation.
-#[derive(Clone, Copy, Debug, Display, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Display, ValueEnum)]
 pub enum Tokenizer {
     #[display("o200k")]
     O200k,
@@ -100,7 +100,7 @@ mod tests {
             include_str!("tokenizer.rs"),
             include_str!("chunk.rs"),
             include_str!("../walk/walker.rs"),
-            include_str!("../report/render/markdown.rs"),
+            include_str!("../render/markdown.rs"),
         ]
         .concat();
         let tricky = "I'm here, they'll SAY 'S're\n\n  \n\t x  \r\n12345 ...!!! /path//x\n\

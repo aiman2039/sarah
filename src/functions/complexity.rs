@@ -1,6 +1,6 @@
 use tree_sitter::Node;
 
-use super::scope::Scope;
+use crate::lang::Scope;
 use crate::units::{Cognitive, Cyclomatic};
 
 const LOGICAL_OPERATORS: &[&str] = &["&&", "||", "and", "or"];

@@ -189,6 +189,96 @@ pub struct Methods(pub usize);
 #[serde(transparent)]
 pub struct Imports(pub usize);
 
+/// Number of distinct internal files that import a file (fan-in) or that it imports (fan-out).
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Fan(pub usize);
+
+/// Explicit `return` statements in one function body (nested functions excluded).
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Returns(pub usize);
+
+/// Number of structs/classes/enums declared in one file.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Types(pub usize);
+
+/// Length of a line in characters (not bytes).
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Chars(pub usize);
+
+/// Number of public API items (functions, methods, types) in one file.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct Items(pub usize);
+
 impl Tokens {
     pub fn saturating_add(self, rhs: Self) -> Self {
         Self(self.0.saturating_add(rhs.0))
