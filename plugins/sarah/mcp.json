@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "sarah": {
+      "type": "stdio",
+      "command": "bash",
+      "args": ["${PLUGIN_ROOT}/scripts/sarah.sh", "mcp"],
+      "env": { "SARAH_PLUGIN_DATA": "${PLUGIN_DATA}" }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "manifest_version": "0.3",
+  "name": "sarah",
+  "display_name": "sarah",
+  "version": "0.0.0",
+  "description": "Count tokens, lines and function sizes per file and flag refactor candidates for AI agents",
+  "long_description": "sarah measures tokens (exact tiktoken counts), lines and function sizes per file, and flags files, functions, types, imports and folders over the limits in sarah.toml. Give the tools absolute paths: the server's working directory is not your project.",
+  "author": { "name": "aiman2039", "url": "https://github.com/aiman2039" },
+  "repository": { "type": "git", "url": "https://github.com/aiman2039/sarah" },
+  "homepage": "https://github.com/aiman2039/sarah",
+  "license": "MIT",
+  "icon": "icon.png",
+  "keywords": ["tokens", "refactoring", "code-metrics"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/sarah",
+    "mcp_config": {
+      "command": "${__dirname}/server/sarah",
+      "args": ["mcp"],
+      "platform_overrides": {
+        "win32": { "command": "${__dirname}/server/sarah.exe" }
+      }
+    }
+  },
+  "tools": [
+    { "name": "report", "description": "Full report for a directory: totals, largest files and functions, warnings" },
+    { "name": "warnings", "description": "Only the warnings, as JSON; changed_since limits them to a branch" },
+    { "name": "check_file", "description": "One file's sizes, functions and warnings" },
+    { "name": "diff", "description": "File, line, token and warning deltas since a git revision" },
+    { "name": "ratchet", "description": "Lowerable (or lowered) limits in sarah.toml" }
+  ],
+  "compatibility": { "platforms": ["darwin", "linux", "win32"] }
+}

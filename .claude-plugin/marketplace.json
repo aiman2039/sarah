@@ -1,0 +1,14 @@
+{
+  "name": "sarah",
+  "description": "sarah: token, line and function-size metrics that tell AI agents what to refactor",
+  "owner": { "name": "aiman2039", "url": "https://github.com/aiman2039" },
+  "plugins": [
+    {
+      "name": "sarah",
+      "source": "./plugins/sarah",
+      "description": "sarah's MCP server and a skill that tells Claude when to use it",
+      "category": "development",
+      "tags": ["refactoring", "tokens", "code-metrics", "mcp"]
+    }
+  ]
+}

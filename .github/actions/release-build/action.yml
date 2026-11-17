@@ -77,6 +77,30 @@ runs:
           tar -xzf "$artifacts/$asset.tar.gz" -C "$RUNNER_TEMP/verify"
           test -x "$RUNNER_TEMP/verify/$exe"
         fi
+    # One MCP bundle (.mcpb) per target for Claude Desktop: manifest.json + server/<binary>.
+    - name: Pack MCP bundle
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        TARGET: ${{ inputs.target }}
+        MCPB: '@anthropic-ai/mcpb@2.1.2'
+      run: |
+        set -euo pipefail
+        exe=sarah platform=linux
+        case "$RUNNER_OS" in
+          macOS) platform=darwin ;;
+          Windows) exe=sarah.exe platform=win32 ;;
+        esac
+        bundle="$RUNNER_TEMP/sarah-mcpb"
+        mkdir -p "$bundle/server"
+        cp "target/$TARGET/release/$exe" "$bundle/server/"
+        cp LICENSE "$bundle/"
+        cp plugins/sarah/.claude-plugin/icon.png "$bundle/"
+        jq --arg v "${TAG#v}" --arg p "$platform" --arg e "server/$exe" \
+          '.version = $v | .compatibility.platforms = [$p] | .server.entry_point = $e' \
+          mcpb/manifest.json > "$bundle/manifest.json"
+        npx -y "$MCPB" validate "$bundle/manifest.json"
+        npx -y "$MCPB" pack "$bundle" "$RUNNER_TEMP/sarah-build-artifacts/sarah-${TAG}-${TARGET}.mcpb"
     - uses: actions/upload-artifact@v7
       with:
         name: release-${{ inputs.target }}
