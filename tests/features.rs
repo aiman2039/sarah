@@ -16,17 +16,20 @@ fn temp_dir(name: &str) -> PathBuf {
     dir
 }
 
+/// Git sets these for hooks (pre-push runs the tests); a child `git` would then use the
+/// outer repository instead of the test's temp repository.
+const GIT_HOOK_ENV: [&str; 4] = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"];
+
 #[expect(
     clippy::unwrap_used,
     reason = "test helper; a failure should abort the test"
 )]
 fn run_in(dir: &Path, args: &[&str]) -> (Option<i32>, String) {
-    let out = Command::cargo_bin("sarah")
-        .unwrap()
-        .arg(dir)
-        .args(args)
-        .output()
-        .unwrap();
+    let mut cmd = Command::cargo_bin("sarah").unwrap();
+    for var in GIT_HOOK_ENV {
+        cmd.env_remove(var);
+    }
+    let out = cmd.arg(dir).args(args).output().unwrap();
     (out.status.code(), String::from_utf8(out.stdout).unwrap())
 }
 
@@ -131,12 +134,11 @@ fn ratchet_lowers_folders_and_check_exits_1() {
 fn diff_reports_deltas_against_git_base() {
     let dir = temp_dir("diff");
     let git = |args: &[&str]| {
-        let s = SysCommand::new("git")
-            .arg("-C")
-            .arg(&dir)
-            .args(args)
-            .status()
-            .unwrap();
+        let mut cmd = SysCommand::new("git");
+        for var in GIT_HOOK_ENV {
+            cmd.env_remove(var);
+        }
+        let s = cmd.arg("-C").arg(&dir).args(args).status().unwrap();
         assert!(s.success());
     };
     git(&["init", "-q"]);
